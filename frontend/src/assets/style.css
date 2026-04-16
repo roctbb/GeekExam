@@ -1,0 +1,292 @@
+/* ===== GeekExam Custom Styles ===== */
+
+:root {
+  --ge-primary: #6c5ce7;
+  --ge-primary-dark: #5a4bd1;
+  --ge-accent: #00cec9;
+  --ge-bg: #f0f2f5;
+  --ge-card-bg: #ffffff;
+  --ge-text: #2d3436;
+  --ge-text-muted: #636e72;
+  --ge-border: #dfe6e9;
+  --ge-success: #00b894;
+  --ge-danger: #d63031;
+  --ge-warning: #fdcb6e;
+  --ge-info: #74b9ff;
+  --ge-radius: 12px;
+  --ge-shadow: 0 2px 12px rgba(0,0,0,.08);
+  --ge-shadow-hover: 0 6px 24px rgba(108,92,231,.15);
+  --ge-transition: .2s ease;
+}
+
+body {
+  background: var(--ge-bg);
+  color: var(--ge-text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* ===== Navbar ===== */
+.ge-navbar {
+  background: linear-gradient(135deg, #2d3436 0%, #636e72 100%);
+  border-bottom: 3px solid var(--ge-primary);
+  padding: .6rem 0;
+  box-shadow: 0 2px 16px rgba(0,0,0,.12);
+}
+.ge-navbar .navbar-brand {
+  font-weight: 800;
+  font-size: 1.4rem;
+  letter-spacing: -.5px;
+  color: #fff !important;
+}
+.ge-navbar .navbar-brand span {
+  color: var(--ge-accent);
+}
+.ge-navbar .btn-outline-light {
+  border-radius: 8px;
+  font-size: .82rem;
+  font-weight: 500;
+  border-color: rgba(255,255,255,.3);
+  transition: var(--ge-transition);
+}
+.ge-navbar .btn-outline-light:hover {
+  background: var(--ge-primary);
+  border-color: var(--ge-primary);
+}
+
+/* ===== Cards ===== */
+.card {
+  border: 1px solid var(--ge-border);
+  border-radius: var(--ge-radius);
+  box-shadow: var(--ge-shadow);
+  transition: box-shadow var(--ge-transition), transform var(--ge-transition);
+  overflow: hidden;
+}
+.card:hover {
+  box-shadow: var(--ge-shadow-hover);
+}
+.card-header {
+  background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
+  border-bottom: 1px solid var(--ge-border);
+  font-weight: 600;
+  padding: .75rem 1.25rem;
+}
+
+/* ===== Tables ===== */
+.table {
+  border-radius: var(--ge-radius);
+  overflow: hidden;
+  box-shadow: var(--ge-shadow);
+}
+.table thead th {
+  background: linear-gradient(135deg, #2d3436 0%, #636e72 100%);
+  color: #fff;
+  font-weight: 600;
+  font-size: .85rem;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  border: none;
+  padding: .75rem 1rem;
+}
+.table tbody tr {
+  transition: background var(--ge-transition);
+}
+.table-hover tbody tr:hover {
+  background: rgba(108,92,231,.05);
+}
+
+/* ===== Buttons ===== */
+.btn-primary {
+  background: var(--ge-primary);
+  border-color: var(--ge-primary);
+  border-radius: 8px;
+  font-weight: 600;
+  transition: var(--ge-transition);
+}
+.btn-primary:hover {
+  background: var(--ge-primary-dark);
+  border-color: var(--ge-primary-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(108,92,231,.3);
+}
+.btn-danger {
+  border-radius: 8px;
+  font-weight: 600;
+}
+.btn-outline-primary {
+  color: var(--ge-primary);
+  border-color: var(--ge-primary);
+  border-radius: 8px;
+  font-weight: 500;
+}
+.btn-outline-primary:hover {
+  background: var(--ge-primary);
+  border-color: var(--ge-primary);
+}
+.btn-outline-secondary {
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+/* ===== Badges ===== */
+.badge {
+  font-weight: 600;
+  padding: .4em .7em;
+  border-radius: 6px;
+  font-size: .78rem;
+}
+.badge.bg-success { background: var(--ge-success) !important; }
+.badge.bg-danger { background: var(--ge-danger) !important; }
+
+/* ===== Form Controls ===== */
+.form-control {
+  border-radius: 8px;
+  border-color: var(--ge-border);
+  transition: border-color var(--ge-transition), box-shadow var(--ge-transition);
+}
+.form-control:focus {
+  border-color: var(--ge-primary);
+  box-shadow: 0 0 0 3px rgba(108,92,231,.15);
+}
+
+/* ===== Question Tabs ===== */
+.ge-question-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0;
+  list-style: none;
+  margin-bottom: 1.25rem;
+}
+.ge-question-tabs .ge-tab {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: .85rem;
+  cursor: pointer;
+  border: 2px solid var(--ge-border);
+  background: #fff;
+  transition: var(--ge-transition);
+  color: var(--ge-text);
+}
+.ge-tab:hover { border-color: var(--ge-primary); }
+.ge-tab.active {
+  background: var(--ge-primary);
+  border-color: var(--ge-primary);
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(108,92,231,.3);
+}
+.ge-tab.answered { border-color: var(--ge-primary); color: var(--ge-primary); }
+.ge-tab.correct { border-color: var(--ge-success); color: var(--ge-success); background: rgba(0,184,148,.08); }
+.ge-tab.wrong { border-color: var(--ge-danger); color: var(--ge-danger); background: rgba(214,48,49,.08); }
+
+/* ===== Timer ===== */
+.ge-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #2d3436;
+  color: #fff;
+  padding: .4rem .9rem;
+  border-radius: 20px;
+  font-weight: 700;
+  font-size: .95rem;
+  font-variant-numeric: tabular-nums;
+}
+.ge-timer.danger {
+  background: var(--ge-danger);
+  animation: pulse 1s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .7; }
+}
+
+/* ===== Join Page ===== */
+.ge-join-card {
+  max-width: 420px;
+  margin: 4rem auto;
+  text-align: center;
+}
+.ge-join-card .ge-join-icon {
+  width: 72px;
+  height: 72px;
+  background: linear-gradient(135deg, var(--ge-primary), var(--ge-accent));
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1.25rem;
+  font-size: 2rem;
+}
+.ge-join-card .form-control-lg {
+  font-size: 1.5rem;
+  letter-spacing: 4px;
+  font-weight: 700;
+  text-align: center;
+  padding: .8rem;
+}
+
+/* ===== Score Display ===== */
+.ge-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: linear-gradient(135deg, var(--ge-primary), var(--ge-accent));
+  color: #fff;
+  padding: .5rem 1.2rem;
+  border-radius: 20px;
+  font-weight: 800;
+  font-size: 1.1rem;
+}
+
+/* ===== Page Headers ===== */
+.ge-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid var(--ge-border);
+}
+.ge-page-header h4 {
+  font-weight: 800;
+  margin: 0;
+  color: var(--ge-text);
+}
+
+/* ===== Animations ===== */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.ge-fade-in {
+  animation: fadeIn .3s ease;
+}
+
+/* ===== Code blocks ===== */
+pre.ge-code {
+  background: #2d3436;
+  color: #dfe6e9;
+  border-radius: 8px;
+  padding: 1rem;
+  font-size: .85rem;
+  overflow-x: auto;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+  .ge-question-tabs .ge-tab {
+    width: 34px;
+    height: 34px;
+    font-size: .75rem;
+  }
+  .ge-page-header {
+    flex-direction: column;
+    gap: .75rem;
+    align-items: flex-start;
+  }
+}
