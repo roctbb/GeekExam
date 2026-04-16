@@ -110,28 +110,35 @@ def check_attempt_answers(attempt_id):
 @celery.task
 def recover_pending_answers():
     """On startup: re-queue answers stuck in pending/checking for finished attempts."""
-    with _get_app().app_context():
-        from models import db, Answer, Attempt
-        from sqlalchemy import and_
-        stuck = (
-            Answer.query
-            .join(Attempt)
-            .filter(
-                Attempt.finished_at.isnot(None),
-                Answer.check_state.in_(['pending', 'checking']),
+    try:
+        with _get_app().app_context():
+            from models import db, Answer, Attempt
+            from sqlalchemy import and_
+            stuck = (
+                Answer.query
+                .join(Attempt)
+                .filter(
+                    Attempt.finished_at.isnot(None),
+                    Answer.check_state.in_(['pending', 'checking']),
+                )
+                .all()
             )
-            .all()
-        )
-        count = 0
-        for answer in stuck:
-            if answer.question.check_type != 'manual':
-                answer.check_state = 'pending'
-                count += 1
-        db.session.commit()
-        for answer in stuck:
-            if answer.question.check_type != 'manual':
-                check_single_answer.delay(answer.id)
-        print(f'[recover] Re-queued {count} stuck answers')
+            count = 0
+            for answer in stuck:
+                if answer.question.check_type != 'manual':
+                    answer.check_state = 'pending'
+                    count += 1
+            db.session.commit()
+            for answer in stuck:
+                if answer.question.check_type != 'manual':
+                    check_single_answer.delay(answer.id)
+            print(f'[recover] Re-queued {count} stuck answers')
+    except Exception as e:
+        print(f'[recover] Skipped: {e}')
+
+
+@celery.task
+def finish_expired_attempts():
     """Celery-beat task: auto-finish attempts where time_limit has expired."""
     with _get_app().app_context():
         from models import db, Attempt, Test
