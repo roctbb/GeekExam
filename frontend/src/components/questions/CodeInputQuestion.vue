@@ -1,7 +1,7 @@
 <template>
   <div>
     <textarea
-      class="form-control font-monospace"
+      class="form-control font-monospace ge-code-editor"
       rows="12"
       :value="modelValue?.code || question.ui_config?.starter_code || ''"
       :disabled="readonly"

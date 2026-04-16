@@ -10,6 +10,7 @@ const routes = [
   { path: '/admin/tests', component: () => import('./views/admin/TestList.vue'), meta: { auth: true, role: 'teacher' } },
   { path: '/admin/tests/upload', component: () => import('./views/admin/TestUpload.vue'), meta: { auth: true, role: 'teacher' } },
   { path: '/admin/tests/:id', component: () => import('./views/admin/TestDetail.vue'), meta: { auth: true, role: 'teacher' } },
+  { path: '/admin/tests/:id/edit', component: () => import('./views/admin/TestEdit.vue'), meta: { auth: true, role: 'teacher' } },
   { path: '/admin/tests/:id/results', component: () => import('./views/admin/TestResults.vue'), meta: { auth: true, role: 'teacher' } },
   { path: '/admin/attempts/:id', component: () => import('./views/admin/AttemptDetail.vue'), meta: { auth: true, role: 'teacher' } },
 ]

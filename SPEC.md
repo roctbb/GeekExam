@@ -35,7 +35,7 @@ GeekExam — платформа для проведения тестов по и
 4. Из токена извлекаются: `id`, `role` (student/teacher/admin), `name`
 5. Данные сохраняются в Flask session
 6. Имя пользователя сохраняется/обновляется в таблице `users` при каждой авторизации
-7. Проверка `iat` — токен валиден не более 5 секунд
+7. Проверка `iat` — токен валиден не более 60 секунд
 
 ```python
 # Структура JWT payload
@@ -96,7 +96,7 @@ questions
 ├── id              (PK, Integer)
 ├── variant_id      (FK → variants.id)
 ├── order           (Integer — порядок вопроса в варианте)
-├── type            (String — тип вопроса: "text_input", "code_input", "true_false_table", "interactive")
+├── type            (String — тип вопроса: "text_input", "code_input", "true_false_table", "multi_input", "interactive")
 ├── title           (String — краткое название)
 ├── body            (Text — текст задания в Markdown, картинки по внешним URL)
 ├── max_points      (Integer — максимальный балл)
@@ -121,7 +121,7 @@ attempts
 └── max_points      (Integer — максимально возможный балл)
 ```
 
-Ограничение: один ученик может пройти один вариант только один раз (`UniqueConstraint(user_id, variant_id)`). Вариант выбирается случайно из тех, которые ученик ещё не проходил.
+Ограничение: один ученик может пройти тест только один раз (`UniqueConstraint(user_id, variant_id)`). Вариант выбирается случайно.
 
 ### 4.6. Answer (ответ на вопрос)
 
@@ -180,7 +180,13 @@ answers
 - **answer value:** Произвольный JSON, определяемый компонентом
 - **check_type:** Любой поддерживаемый
 
-### 5.3. Добавление нового типа
+#### `multi_input` — Несколько текстовых полей
+
+- **UI:** Набор текстовых полей с метками, задаётся в `ui_config.fields`
+- **ui_config:** `{"fields": [{"name": "cell0", "label": "[0] ="}, {"name": "cell1", "label": "[1] ="}]}`
+- **answer value:** `{"cell0": "6", "cell1": "4"}` — объект с ключами из `fields[].name`
+- **check_config для exact:** `{"answers": {"cell0": "6", "cell1": "4"}, "partial_scoring": true}`
+- При `partial_scoring: true` — баллы пропорционально количеству правильных полей
 
 1. Создать Vue-компонент в `frontend/src/components/questions/`
 2. Зарегистрировать в маппинге `questionComponents`
@@ -191,7 +197,7 @@ answers
 
 ## 6. Типы проверки (расширяемая система)
 
-Аналогично типам вопросов — плагинная архитектура. Каждый тип проверки — класс с методом `check(answer_value, check_config) → (points, comment)`.
+Аналогично типам вопросов — плагинная архитектура. Каждый тип проверки — класс с методом `check(answer_value, check_config, max_points) → (points, comment)`.
 
 ### 6.1. `exact` — Сравнение с эталоном
 
@@ -201,9 +207,9 @@ answers
 
 ### 6.2. `checker` — Проверяющая программа
 
-- Python-функция в `check_config.checker_code` или файл `check_config.checker_path`
-- Функция принимает ответ ученика, возвращает `(points, comment)`
-- Выполняется на сервере GeekExam
+- Python-функция в `check_config.checker_code`
+- Функция `check(answer_value, max_points)` принимает ответ ученика и максимальный балл, возвращает `(points, comment)`
+- Выполняется на сервере GeekExam через `exec()`
 
 ### 6.3. `ai` — Нейросетевая проверка (через GeekPasteV2)
 
@@ -261,7 +267,7 @@ POST {callback_url}  (от GeekPasteV2 → GeekExam)
 ### 6.6. Добавление нового типа проверки
 
 1. Создать класс в `backend/checkers/check_types/`
-2. Реализовать метод `check(answer_value, check_config) → (points, comment)`
+2. Реализовать метод `check(answer_value, check_config, max_points) → (points, comment)`
 3. Зарегистрировать в `CHECK_TYPES`
 
 ---
@@ -370,6 +376,7 @@ POST {callback_url}  (от GeekPasteV2 → GeekExam)
 | POST | `/api/tests` | Создать тест (загрузка JSON) |
 | GET | `/api/tests/:id` | Детали теста |
 | PUT | `/api/tests/:id` | Обновить тест (перезагрузка JSON) |
+| PUT | `/api/tests/:id/params` | Обновить параметры теста (title, description, time_limit) |
 | DELETE | `/api/tests/:id` | Удалить тест |
 | POST | `/api/tests/:id/activate` | Запустить тест (is_active=true) |
 | POST | `/api/tests/:id/deactivate` | Остановить тест |
@@ -381,6 +388,7 @@ POST {callback_url}  (от GeekPasteV2 → GeekExam)
 |-------|-----|----------|
 | GET | `/api/tests/:id/attempts` | Список попыток по тесту (ученики + баллы) |
 | GET | `/api/attempts/:id` | Детали попытки (ответы, баллы, комментарии) |
+| DELETE | `/api/attempts/:id` | Удалить попытку (teacher/admin) |
 | PUT | `/api/answers/:id/grade` | Ручная оценка ответа (для manual check_type) |
 
 ### 8.4. Прохождение теста (student)
@@ -417,6 +425,7 @@ POST {callback_url}  (от GeekPasteV2 → GeekExam)
 - **Список тестов** (`/admin/tests`) — таблица тестов, статус (активен/неактивен), код доступа
 - **Детали теста** (`/admin/tests/:id`) — просмотр вариантов и вопросов, кнопки управления
 - **Загрузка теста** (`/admin/tests/upload`) — загрузка JSON-файла, валидация, предпросмотр
+- **Редактирование теста** (`/admin/tests/:id/edit`) — редактирование JSON теста, параметров
 - **Результаты теста** (`/admin/tests/:id/results`) — таблица учеников, баллы, статус проверки
 - **Детали попытки** (`/admin/attempts/:id`) — ответы ученика, баллы, возможность ручной оценки
 
@@ -429,6 +438,7 @@ src/components/questions/
 ├── TextInputQuestion.vue        # text_input
 ├── CodeInputQuestion.vue        # code_input (CodeMirror)
 ├── TrueFalseTableQuestion.vue   # true_false_table
+├── MultiInputQuestion.vue       # multi_input
 └── InteractiveQuestion.vue      # interactive (загрузка кастомного компонента)
 ```
 
@@ -451,8 +461,9 @@ Emit: `update:answer`
 
 1. Ученик вводит код теста
 2. Система проверяет: тест существует, `is_active = true`, код совпадает
-3. Выбирается случайный вариант из тех, которые ученик ещё не проходил
-4. Если все варианты пройдены — ошибка "Вы уже прошли все варианты"
+3. Проверяется, что ученик ещё не проходил этот тест (одна попытка на тест)
+4. Если уже проходил — ошибка "Вы уже проходили этот тест"
+5. Выбирается случайный вариант
 5. Создаётся `Attempt`, создаются пустые `Answer` для каждого вопроса
 6. Фиксируется `started_at`
 
@@ -479,9 +490,7 @@ Emit: `update:answer`
 
 ```
 celery_tasks/
-├── check_exact.py      # Синхронная проверка сравнением
-├── check_checker.py    # Синхронная проверка программой
-└── check_docker.py     # Асинхронный запрос к GeekPasteV2 (docker + ai)
+└── check_answer.py     # Все Celery-задачи: check_single_answer, check_attempt_answers, finish_expired_attempts, recover_pending_answers
 ```
 
 Каждая задача:
@@ -517,6 +526,9 @@ JWT_SECRET=...
 # GeekPasteV2 Integration
 GEEKPASTE_API_URL=https://paste.geekclass.ru/api/external/check
 CALLBACK_BASE_URL=https://auditor.geekclass.ru
+
+# Frontend
+FRONTEND_URL=http://localhost:5173
 ```
 
 ---
@@ -582,18 +594,14 @@ GeekExam/
 │   │   ├── answers.py          # /api/answers/*
 │   │   └── callbacks.py        # /api/callback/*
 │   ├── checkers/
-│   │   ├── registry.py         # Реестры QUESTION_TYPES, CHECK_TYPES
-│   │   ├── question_types/
-│   │   │   ├── text_input.py
-│   │   │   ├── code_input.py
-│   │   │   ├── true_false_table.py
-│   │   │   └── interactive.py
+│   │   ├── registry.py         # Реестры VALID_QUESTION_TYPES, CHECK_TYPES
+│   │   ├── question_types/     # (зарезервировано для будущих обработчиков)
 │   │   └── check_types/
 │   │       ├── exact.py
 │   │       ├── checker.py
 │   │       └── docker.py         # Handles both docker and ai (via GeekPasteV2)
 │   ├── celery_tasks/
-│   │   └── check_answer.py     # Celery task для проверки
+│   │   └── check_answer.py     # Celery-задачи проверки
 │   ├── migrations/
 │   ├── requirements.txt
 │   └── Dockerfile
@@ -612,15 +620,17 @@ GeekExam/
 │   │   │   │   ├── TestList.vue
 │   │   │   │   ├── TestDetail.vue
 │   │   │   │   ├── TestUpload.vue
+│   │   │   │   ├── TestEdit.vue
 │   │   │   │   ├── TestResults.vue
 │   │   │   │   └── AttemptDetail.vue
 │   │   ├── components/
-│   │   │   ├── QuestionTabs.vue
-│   │   │   ├── Timer.vue
+│   │   │   ├── CheckResult.vue
+│   │   │   ├── interactiveRegistry.js
 │   │   │   └── questions/
 │   │   │       ├── TextInputQuestion.vue
 │   │   │       ├── CodeInputQuestion.vue
 │   │   │       ├── TrueFalseTableQuestion.vue
+│   │   │       ├── MultiInputQuestion.vue
 │   │   │       └── InteractiveQuestion.vue
 │   │   └── stores/             # Pinia
 │   │       ├── auth.js

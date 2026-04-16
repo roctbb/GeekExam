@@ -1,6 +1,6 @@
 import json
 from flask import Blueprint, jsonify, request
-from models import db, Test, Variant, Question
+from models import db, Test, Variant, Question, Attempt
 from auth import teacher_required, current_user_id
 from checkers.registry import VALID_QUESTION_TYPES, CHECK_TYPES
 
@@ -57,6 +57,33 @@ def _parse_and_create_test(data, test=None):
     return test
 
 
+def _current_test_payload(test):
+    return {
+        'title': test.title,
+        'description': test.description,
+        'time_limit': test.time_limit,
+        'variants': [
+            {
+                'title': v.title,
+                'questions': [
+                    {
+                        'type': q.type,
+                        'title': q.title,
+                        'body': q.body,
+                        'max_points': q.max_points,
+                        'check_type': q.check_type,
+                        'check_config': q.check_config,
+                        'ui_config': q.ui_config,
+                        'allow_intermediate_check': q.allow_intermediate_check,
+                    }
+                    for q in v.questions
+                ],
+            }
+            for v in test.variants
+        ],
+    }
+
+
 def _test_to_dict(test, include_variants=False):
     d = {
         'id': test.id,
@@ -69,6 +96,14 @@ def _test_to_dict(test, include_variants=False):
         'created_at': test.created_at.isoformat() if test.created_at else None,
     }
     if include_variants:
+        source_json = None
+        if test.source_json:
+            try:
+                source_json = json.loads(test.source_json)
+            except json.JSONDecodeError:
+                source_json = None
+
+        d['source_json'] = source_json
         d['variants'] = [
             {
                 'id': v.id,
@@ -82,6 +117,7 @@ def _test_to_dict(test, include_variants=False):
                         'body': q.body,
                         'max_points': q.max_points,
                         'check_type': q.check_type,
+                        'check_config': q.check_config,
                         'ui_config': q.ui_config,
                         'allow_intermediate_check': q.allow_intermediate_check,
                     }
@@ -129,12 +165,57 @@ def update_test(test_id):
     data = request.get_json()
     if not data:
         return jsonify({'error': 'JSON required'}), 400
+
+    has_attempts = Attempt.query.filter_by(test_id=test.id).first() is not None
+    if has_attempts:
+        return jsonify({'error': 'Нельзя изменять варианты и вопросы после начала прохождения теста'}), 422
+
     try:
         _parse_and_create_test(data, test=test)
         db.session.commit()
         return jsonify(_test_to_dict(test))
     except (ValueError, KeyError) as e:
         return jsonify({'error': str(e)}), 422
+
+
+@tests_bp.route('/api/tests/<int:test_id>/params', methods=['PUT'])
+@teacher_required
+def update_test_params(test_id):
+    test = Test.query.get_or_404(test_id)
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'JSON required'}), 400
+
+    title = (data.get('title') or '').strip()
+    if not title:
+        return jsonify({'error': 'Название теста не может быть пустым'}), 422
+
+    time_limit = data.get('time_limit')
+    if time_limit is not None:
+        if not isinstance(time_limit, int) or time_limit <= 0:
+            return jsonify({'error': 'Лимит времени должен быть положительным целым числом'}), 422
+
+    test.title = title
+    test.description = data.get('description')
+    test.time_limit = time_limit
+
+    # Keep source_json in sync so the editor always receives актуальные параметры.
+    source_payload = None
+    if test.source_json:
+        try:
+            source_payload = json.loads(test.source_json)
+        except json.JSONDecodeError:
+            source_payload = None
+    if not source_payload:
+        source_payload = _current_test_payload(test)
+
+    source_payload['title'] = test.title
+    source_payload['description'] = test.description
+    source_payload['time_limit'] = test.time_limit
+    test.source_json = json.dumps(source_payload, ensure_ascii=False)
+
+    db.session.commit()
+    return jsonify(_test_to_dict(test))
 
 
 @tests_bp.route('/api/tests/<int:test_id>', methods=['DELETE'])
@@ -185,7 +266,6 @@ def set_test_code(test_id):
 @tests_bp.route('/api/tests/<int:test_id>/attempts', methods=['GET'])
 @teacher_required
 def test_attempts(test_id):
-    from models import Attempt
     attempts = Attempt.query.filter_by(test_id=test_id).all()
     return jsonify([
         {

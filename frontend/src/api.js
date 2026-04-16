@@ -19,6 +19,7 @@ export default {
   createTest: (data) => api.post('/tests', data),
   getTest: (id) => api.get(`/tests/${id}`),
   updateTest: (id, data) => api.put(`/tests/${id}`, data),
+  updateTestParams: (id, data) => api.put(`/tests/${id}/params`, data),
   deleteTest: (id) => api.delete(`/tests/${id}`),
   activateTest: (id) => api.post(`/tests/${id}/activate`),
   deactivateTest: (id) => api.post(`/tests/${id}/deactivate`),

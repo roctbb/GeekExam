@@ -1,13 +1,13 @@
 <template>
-  <nav class="navbar navbar-expand-lg ge-navbar mb-4">
+  <nav class="navbar ge-navbar sticky-top mb-4">
     <div class="container">
-      <a class="navbar-brand" href="/">🎓 Geek<span>Exam</span></a>
+      <a class="navbar-brand" href="/">Geek<span>Exam</span></a>
       <div class="d-flex align-items-center gap-2">
         <template v-if="auth.user">
           <span class="text-light small opacity-75">{{ auth.user.name }}</span>
-          <a v-if="isTeacher" href="/admin/tests" class="btn btn-sm btn-outline-light">📋 Тесты</a>
-          <a href="/my-results" class="btn btn-sm btn-outline-light">📊 Результаты</a>
-          <button class="btn btn-sm btn-outline-secondary" @click="logout">Выйти</button>
+          <a v-if="isTeacher" href="/admin/tests" class="btn btn-sm btn-outline-light">Тесты</a>
+          <a href="/my-results" class="btn btn-sm btn-outline-light">Результаты</a>
+          <button class="btn btn-sm btn-outline-secondary text-light border-secondary" @click="logout">Выйти</button>
         </template>
         <a v-else href="/auth/login" class="btn btn-sm btn-outline-light">Войти</a>
       </div>
