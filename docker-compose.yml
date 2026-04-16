@@ -1,0 +1,53 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8085:8085"
+    depends_on:
+      - db
+      - redis
+    env_file: .env
+    restart: unless-stopped
+
+  celery_worker:
+    build: ./backend
+    command: celery -A celery_app worker --loglevel=info -Q auditor_queue
+    depends_on:
+      - db
+      - redis
+    env_file: .env
+    restart: unless-stopped
+
+  celery_beat:
+    build: ./backend
+    command: celery -A celery_app beat --loglevel=info
+    depends_on:
+      - db
+      - redis
+    env_file: .env
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: geekexam
+      POSTGRES_USER: geekexam
+      POSTGRES_PASSWORD: geekexam
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+volumes:
+  pgdata:
