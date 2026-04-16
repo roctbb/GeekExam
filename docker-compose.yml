@@ -8,13 +8,19 @@ services:
       - redis
     env_file: .env
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8085/api/me')"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
 
   celery_worker:
     build: ./backend
     command: celery -A celery_app worker --loglevel=info -Q auditor_queue
     depends_on:
-      - db
-      - redis
+      backend:
+        condition: service_healthy
     env_file: .env
     restart: unless-stopped
 
@@ -22,8 +28,8 @@ services:
     build: ./backend
     command: celery -A celery_app beat --loglevel=info
     depends_on:
-      - db
-      - redis
+      backend:
+        condition: service_healthy
     env_file: .env
     restart: unless-stopped
 
