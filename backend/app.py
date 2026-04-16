@@ -1,3 +1,6 @@
+import eventlet
+eventlet.monkey_patch()
+
 from manage import app, socketio
 from routes.auth import auth_bp
 from routes.tests import tests_bp
@@ -20,4 +23,4 @@ def on_join(data):
 
 if __name__ == '__main__':
     from config import PORT, DEBUG
-    socketio.run(app, host='0.0.0.0', port=PORT, debug=DEBUG)
+    socketio.run(app, host='0.0.0.0', port=PORT, debug=DEBUG, allow_unsafe_werkzeug=True)

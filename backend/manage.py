@@ -17,4 +17,4 @@ migrate = Migrate(app, db)
 
 # Use redis message_queue only in production (when celery workers emit events separately)
 _mq = REDIS_URL if not DEBUG else None
-socketio = SocketIO(app, message_queue=_mq, cors_allowed_origins='*', async_mode='threading')
+socketio = SocketIO(app, message_queue=_mq, cors_allowed_origins='*', async_mode='eventlet')

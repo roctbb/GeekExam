@@ -2,4 +2,4 @@
 set -e
 export FLASK_APP=manage.py
 flask db upgrade
-exec python app.py
+exec gunicorn --worker-class eventlet --bind 0.0.0.0:8085 --workers 1 'app:app'
