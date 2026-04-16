@@ -66,7 +66,7 @@ def check_single_answer(answer_id, intermediate=False):
 
         if is_async_check(check_type):
             checker = get_checker(check_type)
-            ok = checker.submit(answer.id, answer.value or {}, question.check_config or {}, question.body)
+            ok = checker.submit(answer.id, answer.value or {}, question.check_config or {}, question.body, check_type, question.max_points)
             if not ok:
                 answer.check_state = 'error'
                 answer.check_comment = 'Ошибка отправки на проверку'

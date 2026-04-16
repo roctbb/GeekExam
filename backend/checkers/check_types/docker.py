@@ -10,19 +10,23 @@ def _make_service_token():
 
 
 class DockerChecker:
-    def submit(self, answer_id, answer_value, check_config, question_body):
+    def submit(self, answer_id, answer_value, check_config, question_body, check_type='docker', max_points=10):
         """
         Sends code/text to GeekPasteV2 for async checking.
         Returns True if submitted successfully.
         """
+        paste_check_type = 'gpt' if check_type == 'ai' else 'tests'
+        config = {**check_config}
+        if paste_check_type == 'gpt':
+            config.setdefault('max_points', max_points)
         payload = {
             'callback_url': f'{CALLBACK_BASE_URL}/api/callback/check',
             'callback_id': str(answer_id),
             'code': answer_value.get('code') or answer_value.get('text', ''),
             'lang': check_config.get('lang', 'python'),
             'task_text': question_body or '',
-            'check_type': check_config.get('check_type', 'tests'),
-            'check_config': check_config,
+            'check_type': paste_check_type,
+            'check_config': config,
         }
         headers = {'Authorization': f'Bearer {_make_service_token()}'}
         try:
