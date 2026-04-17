@@ -1,8 +1,20 @@
 from flask import Blueprint, jsonify, request
 from models import db, Answer
-from sanitize import strip_nul_chars
 
 callbacks_bp = Blueprint('callbacks', __name__)
+
+
+def _strip_nul_chars(value):
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, list):
+        return [_strip_nul_chars(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            _strip_nul_chars(key) if isinstance(key, str) else key: _strip_nul_chars(item)
+            for key, item in value.items()
+        }
+    return value
 
 
 @callbacks_bp.route('/api/callback/check', methods=['POST'])
@@ -29,7 +41,7 @@ def check_callback():
         answer.points = 0
         answer.check_state = 'error'
 
-    answer.check_comment = strip_nul_chars(data.get('comment'))
+    answer.check_comment = _strip_nul_chars(data.get('comment'))
     db.session.commit()
 
     # Emit WebSocket update

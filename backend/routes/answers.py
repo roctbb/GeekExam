@@ -1,9 +1,21 @@
 from flask import Blueprint, jsonify, request
 from models import db, Answer, Attempt
 from auth import api_login_required, teacher_required, current_user_id
-from sanitize import strip_nul_chars
 
 answers_bp = Blueprint('answers', __name__)
+
+
+def _strip_nul_chars(value):
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, list):
+        return [_strip_nul_chars(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            _strip_nul_chars(key) if isinstance(key, str) else key: _strip_nul_chars(item)
+            for key, item in value.items()
+        }
+    return value
 
 
 @answers_bp.route('/api/answers/<int:answer_id>', methods=['PUT'])
@@ -17,7 +29,7 @@ def save_answer(answer_id):
         return jsonify({'error': 'Тест уже завершён'}), 422
 
     data = request.get_json()
-    answer.value = strip_nul_chars(data.get('value'))
+    answer.value = _strip_nul_chars(data.get('value'))
     db.session.commit()
     return jsonify({'status': 'saved'})
 
@@ -51,12 +63,12 @@ def grade_answer(answer_id):
     answer = Answer.query.get_or_404(answer_id)
     data = request.get_json()
     answer.points = data.get('points')
-    answer.check_comment = strip_nul_chars(data.get('comment'))
+    answer.check_comment = _strip_nul_chars(data.get('comment'))
     answer.check_state = 'checked'
     db.session.commit()
 
     # Check if all answers in attempt are now checked
     from celery_tasks.check_answer import _finalize_attempt_if_done
-    _finalize_attempt_if_done(answer.attempt_id)
+    _finalize_attempt_if_done(answer.attempt_id, force_recalculate=True)
 
     return jsonify({'status': 'graded'})

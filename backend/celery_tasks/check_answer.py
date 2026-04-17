@@ -4,7 +4,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from datetime import datetime
 from celery_app import celery
-from sanitize import strip_nul_chars
 
 
 def _get_app():
@@ -12,12 +11,27 @@ def _get_app():
     return app
 
 
-def _finalize_attempt_if_done(attempt_id):
+def _strip_nul_chars(value):
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, list):
+        return [_strip_nul_chars(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            _strip_nul_chars(key) if isinstance(key, str) else key: _strip_nul_chars(item)
+            for key, item in value.items()
+        }
+    return value
+
+
+def _finalize_attempt_if_done(attempt_id, force_recalculate=False):
     """Check if all answers are checked; if so, compute total and emit WebSocket."""
     with _get_app().app_context():
         from models import db, Attempt, Answer
         attempt = Attempt.query.get(attempt_id)
-        if not attempt or attempt.is_checked:
+        if not attempt:
+            return
+        if attempt.is_checked and not force_recalculate:
             return
         answers = Answer.query.filter_by(attempt_id=attempt_id).all()
         # manual answers with pending state are not auto-checked — skip finalization until teacher grades them
@@ -77,11 +91,11 @@ def check_single_answer(answer_id, intermediate=False):
             try:
                 points, comment = checker.check(answer.value, question.check_config or {}, question.max_points)
                 answer.points = points
-                answer.check_comment = strip_nul_chars(comment)
+                answer.check_comment = _strip_nul_chars(comment)
                 answer.check_state = 'checked'
             except Exception as e:
                 answer.check_state = 'error'
-                answer.check_comment = strip_nul_chars(str(e))
+                answer.check_comment = _strip_nul_chars(str(e))
             db.session.commit()
 
             from manage import socketio
