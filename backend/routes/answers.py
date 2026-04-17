@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 from models import db, Answer, Attempt
 from auth import api_login_required, teacher_required, current_user_id
+from sanitize import strip_nul_chars
 
 answers_bp = Blueprint('answers', __name__)
 
@@ -16,7 +17,7 @@ def save_answer(answer_id):
         return jsonify({'error': 'Тест уже завершён'}), 422
 
     data = request.get_json()
-    answer.value = data.get('value')
+    answer.value = strip_nul_chars(data.get('value'))
     db.session.commit()
     return jsonify({'status': 'saved'})
 
@@ -50,7 +51,7 @@ def grade_answer(answer_id):
     answer = Answer.query.get_or_404(answer_id)
     data = request.get_json()
     answer.points = data.get('points')
-    answer.check_comment = data.get('comment')
+    answer.check_comment = strip_nul_chars(data.get('comment'))
     answer.check_state = 'checked'
     db.session.commit()
 

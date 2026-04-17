@@ -33,8 +33,15 @@ async function join() {
     router.push(`/attempt/${data.attempt_id}`)
   } catch (e) {
     const data = e.response?.data
-    if (data?.attempt_id) router.push(`/my-results/${data.attempt_id}`)
-    else error.value = data?.error || 'Ошибка'
+    if (data?.attempt_id) {
+      try {
+        const { data: attempt } = await api.getAttempt(data.attempt_id)
+        if (attempt.finished_at) router.push(`/my-results/${data.attempt_id}`)
+        else router.push(`/attempt/${data.attempt_id}`)
+      } catch {
+        router.push(`/my-results/${data.attempt_id}`)
+      }
+    } else error.value = data?.error || 'Ошибка'
   } finally { loading.value = false }
 }
 </script>

@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
 from models import db, Answer
+from sanitize import strip_nul_chars
 
 callbacks_bp = Blueprint('callbacks', __name__)
 
@@ -28,7 +29,7 @@ def check_callback():
         answer.points = 0
         answer.check_state = 'error'
 
-    answer.check_comment = data.get('comment')
+    answer.check_comment = strip_nul_chars(data.get('comment'))
     db.session.commit()
 
     # Emit WebSocket update

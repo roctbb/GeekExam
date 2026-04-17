@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from datetime import datetime
 from celery_app import celery
+from sanitize import strip_nul_chars
 
 
 def _get_app():
@@ -76,11 +77,11 @@ def check_single_answer(answer_id, intermediate=False):
             try:
                 points, comment = checker.check(answer.value, question.check_config or {}, question.max_points)
                 answer.points = points
-                answer.check_comment = comment
+                answer.check_comment = strip_nul_chars(comment)
                 answer.check_state = 'checked'
             except Exception as e:
                 answer.check_state = 'error'
-                answer.check_comment = str(e)
+                answer.check_comment = strip_nul_chars(str(e))
             db.session.commit()
 
             from manage import socketio
