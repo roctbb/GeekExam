@@ -27,7 +27,12 @@
           <thead><tr><th style="width:50px">#</th><th>Вопрос</th><th>Тип</th><th>Проверка</th><th style="width:70px">Баллы</th></tr></thead>
           <tbody>
             <tr v-for="q in v.questions" :key="q.id">
-              <td class="text-center">{{ q.order + 1 }}</td><td>{{ q.title }}</td>
+              <td class="text-center">{{ q.order + 1 }}</td>
+              <td>
+                <div class="fw-semibold">{{ q.title }}</div>
+                <div v-if="q.body" class="small text-muted mt-1 ge-question-body">{{ q.body }}</div>
+                <span v-else class="small text-muted">—</span>
+              </td>
               <td><code>{{ q.type }}</code></td><td><code>{{ q.check_type }}</code></td>
               <td class="text-center fw-bold">{{ q.max_points }}</td>
             </tr>
@@ -50,3 +55,9 @@ async function activate() { await api.activateTest(test.value.id); test.value.is
 async function deactivate() { await api.deactivateTest(test.value.id); test.value.is_active = false }
 async function saveCode() { const { data } = await api.setTestCode(test.value.id, newCode.value); test.value.code = data.code }
 </script>
+
+<style scoped>
+.ge-question-body {
+  white-space: pre-wrap;
+}
+</style>

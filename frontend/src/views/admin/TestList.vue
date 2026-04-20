@@ -16,7 +16,15 @@
             <td class="text-end">
               <RouterLink :to="`/admin/tests/${t.id}`" class="btn btn-sm btn-outline-secondary me-1">Открыть</RouterLink>
               <RouterLink :to="`/admin/tests/${t.id}/edit`" class="btn btn-sm btn-outline-secondary me-1">Редактировать</RouterLink>
-              <RouterLink :to="`/admin/tests/${t.id}/results`" class="btn btn-sm btn-outline-primary">Результаты</RouterLink>
+              <RouterLink :to="`/admin/tests/${t.id}/results`" class="btn btn-sm btn-outline-primary me-1">Результаты</RouterLink>
+              <button
+                class="btn btn-sm btn-outline-danger"
+                :disabled="deletingId === t.id"
+                @click="removeTest(t)"
+              >
+                <span v-if="deletingId === t.id" class="spinner-border spinner-border-sm me-1" />
+                Удалить
+              </button>
             </td>
           </tr>
         </tbody>
@@ -29,5 +37,23 @@
 import { ref, onMounted } from 'vue'
 import api from '../../api'
 const tests = ref([])
+const deletingId = ref(null)
+
 onMounted(async () => { const { data } = await api.getTests(); tests.value = data })
+
+async function removeTest(test) {
+  const ok = confirm(`Удалить тест «${test.title}»? Это действие нельзя отменить.`)
+  if (!ok) return
+
+  deletingId.value = test.id
+  try {
+    await api.deleteTest(test.id)
+    tests.value = tests.value.filter((t) => t.id !== test.id)
+  } catch (e) {
+    const msg = e?.response?.data?.error || 'Не удалось удалить тест'
+    alert(msg)
+  } finally {
+    deletingId.value = null
+  }
+}
 </script>
