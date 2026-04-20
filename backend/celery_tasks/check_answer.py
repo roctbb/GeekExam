@@ -75,17 +75,47 @@ def check_single_answer(answer_id, intermediate=False):
             answer.check_state = 'checked'
             answer.check_comment = 'Ответ не предоставлен'
             db.session.commit()
+
+            from manage import socketio
+            socketio.emit('answer_checked', {
+                'answer_id': answer.id,
+                'question_id': answer.question_id,
+                'points': answer.points,
+                'check_state': answer.check_state,
+                'check_comment': answer.check_comment,
+            }, room=f'attempt_{answer.attempt_id}')
+
             if not intermediate:
                 _finalize_attempt_if_done(answer.attempt_id)
             return
 
         if is_async_check(check_type):
             checker = get_checker(check_type)
-            ok = checker.submit(answer.id, answer.value or {}, question.check_config or {}, question.body, check_type, question.max_points)
+            submit_result = checker.submit(
+                answer.id,
+                answer.value or {},
+                question.check_config or {},
+                question.body,
+                check_type,
+                question.max_points,
+            )
+            if isinstance(submit_result, tuple):
+                ok, error_message = submit_result
+            else:
+                ok, error_message = bool(submit_result), None
             if not ok:
                 answer.check_state = 'error'
-                answer.check_comment = 'Ошибка отправки на проверку'
+                answer.check_comment = error_message or 'Ошибка отправки на проверку'
                 db.session.commit()
+
+                from manage import socketio
+                socketio.emit('answer_checked', {
+                    'answer_id': answer.id,
+                    'question_id': answer.question_id,
+                    'points': answer.points,
+                    'check_state': answer.check_state,
+                    'check_comment': answer.check_comment,
+                }, room=f'attempt_{answer.attempt_id}')
         else:
             checker = get_checker(check_type)
             try:

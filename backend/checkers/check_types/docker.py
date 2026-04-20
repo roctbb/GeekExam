@@ -13,7 +13,7 @@ class DockerChecker:
     def submit(self, answer_id, answer_value, check_config, question_body, check_type='docker', max_points=10):
         """
         Sends code/text to GeekPasteV2 for async checking.
-        Returns True if submitted successfully.
+        Returns (ok, error_message).
         """
         paste_check_type = 'gpt' if check_type == 'ai' else 'tests'
         config = {**check_config}
@@ -31,7 +31,21 @@ class DockerChecker:
         headers = {'Authorization': f'Bearer {_make_service_token()}'}
         try:
             resp = requests.post(GEEKPASTE_API_URL, json=payload, headers=headers, timeout=10)
-            return resp.status_code == 200
+            if resp.status_code == 200:
+                return True, None
+
+            error_text = None
+            try:
+                data = resp.json()
+                error_text = data.get('error') if isinstance(data, dict) else None
+            except Exception:
+                error_text = None
+            details = error_text or (resp.text.strip() if resp.text else '')
+            details = details[:500] if details else ''
+            message = f'GeekPaste ответил {resp.status_code}'
+            if details:
+                message += f': {details}'
+            return False, message
         except Exception as e:
             print(f'GeekPasteV2 submit error: {e}')
-            return False
+            return False, f'Ошибка запроса к GeekPaste: {e}'
