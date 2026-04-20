@@ -260,7 +260,7 @@ function toPayload() {
         check_type: checkType,
         check_config: parseConfig(question.check_config_text, 'check_config', variantIndex, questionIndex),
         ui_config: parseConfig(question.ui_config_text, 'ui_config', variantIndex, questionIndex),
-        allow_intermediate_check: Boolean(question.allow_intermediate_check),
+        allow_intermediate_check: checkType !== 'manual' && Boolean(question.allow_intermediate_check),
       }
     })
 

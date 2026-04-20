@@ -98,8 +98,20 @@ function onAnswerUpdate(value) {
 }
 
 async function onIntermediateCheck() {
-  store.updateAnswer(currentQuestion.value.id, { check_state: 'checking' })
-  await api.checkAnswer(currentAnswer.value.id)
+  const questionId = currentQuestion.value.id
+  const prev = { ...currentAnswer.value }
+  store.updateAnswer(questionId, { check_state: 'checking' })
+  try {
+    await api.checkAnswer(currentAnswer.value.id)
+  } catch (e) {
+    // Roll back optimistic "checking" state when request fails.
+    store.updateAnswer(questionId, {
+      check_state: prev.check_state ?? 'pending',
+      check_comment: prev.check_comment ?? null,
+      points: prev.points ?? null,
+    })
+    alert(e?.response?.data?.error || 'Не удалось запустить промежуточную проверку')
+  }
 }
 
 async function confirmFinish() {

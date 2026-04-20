@@ -45,6 +45,8 @@ def intermediate_check(answer_id):
         return jsonify({'error': 'Тест уже завершён'}), 422
     if not answer.question.allow_intermediate_check:
         return jsonify({'error': 'Промежуточная проверка недоступна'}), 422
+    if answer.question.check_type == 'manual':
+        return jsonify({'error': 'Промежуточная проверка недоступна для ручной проверки'}), 422
     if answer.check_state == 'checking':
         return jsonify({'error': 'Проверка уже выполняется'}), 422
 
