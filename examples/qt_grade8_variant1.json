@@ -13,7 +13,18 @@
           "max_points": 10,
           "check_type": "exact",
           "check_config": {
-            "correct": [false, true, false, true, false, true, false, false, true, false],
+            "correct": [
+              false,
+              true,
+              false,
+              true,
+              false,
+              true,
+              false,
+              false,
+              true,
+              false
+            ],
             "partial_scoring": true
           },
           "ui_config": {
@@ -33,28 +44,51 @@
         },
         {
           "type": "code_input",
-          "title": "Задание 2. Допиши код с connect",
-          "body": "### 2.1. Запуск игры по кнопке\n\nДана часть класса `Widget`. Нужно сделать так, чтобы при нажатии на кнопку `startButton` запускался метод `startGame()`.\n\n```cpp\nclass Widget : public QWidget\n{\n    Q_OBJECT\n\npublic:\n    Widget(QWidget *parent = nullptr);\n\nprivate slots:\n    void startGame();\n};\n```\n\n```cpp\nWidget::Widget(QWidget *parent)\n    : QWidget(parent)\n{\n    QPushButton *startButton = new QPushButton(\"Старт\", this);\n\n    ________________________________________________;\n}\n```\n\n### 2.2. Движение шариков по таймеру\n\nДана часть класса `Widget`. Нужно сделать так, чтобы метод `moveBalls()` вызывался каждые 50 миллисекунд.\n\n```cpp\nclass Widget : public QWidget\n{\n    Q_OBJECT\n\npublic:\n    Widget(QWidget *parent = nullptr);\n\nprivate slots:\n    void moveBalls();\n\nprivate:\n    QTimer *timer;\n};\n```\n\n```cpp\nWidget::Widget(QWidget *parent)\n    : QWidget(parent)\n{\n    timer = new QTimer(this);\n\n    ________________________________________________;\n\n    ________________________________________________;\n}\n```\n\n### 2.3. Сигнал и слот\n\nОбъясни своими словами: чем сигнал отличается от слота?",
-          "max_points": 6,
+          "title": "Задание 2. Кнопка и connect",
+          "body": "Дана часть класса `Widget`. Нужно сделать так, чтобы при нажатии на кнопку `startButton` запускался метод `startGame()`.\n\nДопиши недостающую строку в конструкторе.",
+          "max_points": 3,
           "allow_intermediate_check": true,
           "check_type": "ai",
           "check_config": {
-            "prompt": "Оцени ответ ученика на задание по Qt connect на 6 баллов. Нужно проверить три части. 2 балла: для кнопки startButton ученик правильно связывает сигнал нажатия clicked()/clicked(bool) со слотом startGame(), например connect(startButton, SIGNAL(clicked()), this, SLOT(startGame())); или новый синтаксис connect(startButton, &QPushButton::clicked, this, &Widget::startGame);. 2 балла: для таймера ученик правильно связывает timeout()/QTimer::timeout со слотом moveBalls() и запускает таймер с интервалом 50 мс через timer->start(50). Если есть только connect без start(50), дай не больше 1 балла за эту часть. 2 балла: ученик своими словами объясняет, что сигнал сообщает о событии/произошедшем действии, а слот — функция/метод, который выполняется в ответ на сигнал. Засчитывай старый и новый синтаксис Qt. Не требуй точного форматирования, если смысл и имена объектов/методов верные. В комментарии кратко укажи, что зачтено и что нет.",
-            "answer": "Эталон: connect(startButton, SIGNAL(clicked()), this, SLOT(startGame())); connect(timer, SIGNAL(timeout()), this, SLOT(moveBalls())); timer->start(50); Сигнал сообщает, что что-то произошло, например нажали кнопку или сработал таймер. Слот — метод, который вызывается в ответ на сигнал."
+            "prompt": "Оцени ответ ученика на задание по Qt connect для кнопки на 3 балла. 2 балла: ученик правильно связывает кнопку startButton с методом startGame() через сигнал нажатия clicked()/clicked(bool), например connect(startButton, SIGNAL(clicked()), this, SLOT(startGame())); или новый синтаксис connect(startButton, &QPushButton::clicked, this, &Widget::startGame);. 1 балл: ученик сохраняет общий смысл сигнала и слота: сигнал кнопки сообщает о нажатии, а startGame() является обработчиком/слотом, который должен выполниться. Засчитывай старый и новый синтаксис Qt. Не требуй точного форматирования, если имена объектов и методов верные. Если ученик пишет вызов startGame() напрямую без connect, поставь не больше 1 балла. В комментарии кратко укажи, что зачтено и что нет.",
+            "answer": "Эталон: connect(startButton, SIGNAL(clicked()), this, SLOT(startGame())); Также можно connect(startButton, SIGNAL(clicked(bool)), this, SLOT(startGame())); или connect(startButton, &QPushButton::clicked, this, &Widget::startGame);"
           },
           "ui_config": {
             "lang": "cpp",
-            "starter_code": "// 2.1\n\n\n// 2.2\n\n\n// 2.3\n\n"
+            "starter_code": "class Widget : public QWidget\n{\n    Q_OBJECT\n\npublic:\n    Widget(QWidget *parent = nullptr);\n\nprivate slots:\n    void startGame();\n};\n\nWidget::Widget(QWidget *parent)\n    : QWidget(parent)\n{\n    QPushButton *startButton = new QPushButton(\"Старт\", this);\n\n    // допиши одну строку\n\n}\n"
+          }
+        },
+        {
+          "type": "code_input",
+          "title": "Задание 3. Таймер и connect",
+          "body": "Дана часть класса `Widget`. Нужно сделать так, чтобы метод `moveBalls()` вызывался каждые 50 миллисекунд.\n\nДопиши недостающие строки в конструкторе.",
+          "max_points": 3,
+          "allow_intermediate_check": true,
+          "check_type": "ai",
+          "check_config": {
+            "prompt": "Оцени ответ ученика на задание по Qt connect для таймера на 3 балла. 1.5 балла: ученик правильно связывает сигнал таймера timeout()/QTimer::timeout со слотом moveBalls(), например connect(timer, SIGNAL(timeout()), this, SLOT(moveBalls())); или новый синтаксис connect(timer, &QTimer::timeout, this, &Widget::moveBalls);. 1 балл: ученик запускает таймер с интервалом 50 мс через timer->start(50). 0.5 балла: ученик сохраняет правильную идею, что таймер периодически вызывает игровой метод движения, а не вызывает moveBalls() один раз напрямую. Если есть только connect без timer->start(50), дай не больше 1.5 балла. Если есть только timer->start(50) без connect, дай не больше 1 балла. Засчитывай старый и новый синтаксис Qt. В комментарии кратко укажи начисление по пунктам.",
+            "answer": "Эталон: connect(timer, SIGNAL(timeout()), this, SLOT(moveBalls())); timer->start(50); Также можно connect(timer, &QTimer::timeout, this, &Widget::moveBalls); timer->start(50);"
+          },
+          "ui_config": {
+            "lang": "cpp",
+            "starter_code": "class Widget : public QWidget\n{\n    Q_OBJECT\n\npublic:\n    Widget(QWidget *parent = nullptr);\n\nprivate slots:\n    void moveBalls();\n\nprivate:\n    QTimer *timer;\n};\n\nWidget::Widget(QWidget *parent)\n    : QWidget(parent)\n{\n    timer = new QTimer(this);\n\n    // допиши connect\n\n    // запусти таймер\n\n}\n"
           }
         },
         {
           "type": "choice_table",
-          "title": "Задание 3. Сигналы, слоты или события",
+          "title": "Задание 4. Сигналы, слоты или события",
           "body": "Определи, что перед тобой: **сигнал**, **слот** или **системное событие Qt**.",
           "max_points": 4,
           "check_type": "exact",
           "check_config": {
-            "correct": ["signal", "signal", "event", "event", "slot", "event"],
+            "correct": [
+              "signal",
+              "signal",
+              "event",
+              "event",
+              "slot",
+              "event"
+            ],
             "partial_scoring": true,
             "trim": true,
             "case_sensitive": false
@@ -99,7 +133,7 @@
         },
         {
           "type": "text_input",
-          "title": "Задание 4. Layout",
+          "title": "Задание 5. Layout",
           "body": "В меню игры есть три кнопки: `Старт`, `Правила`, `Выход`.\n\nУченик расставил их вручную координатами:\n\n```cpp\nstartButton->move(100, 50);\nrulesButton->move(100, 100);\nexitButton->move(100, 150);\n```\n\nОтветь:\n\n1. Почему такой способ может быть неудобен?\n2. Какой подход в Qt лучше использовать для размещения кнопок?",
           "max_points": 4,
           "check_type": "ai",
@@ -113,7 +147,7 @@
         },
         {
           "type": "text_input",
-          "title": "Задание 5. Архитектура игры и paintEvent",
+          "title": "Задание 6. Архитектура игры и paintEvent",
           "body": "Код должен рисовать игрока в окне:\n\n```cpp\nvoid Widget::paintEvent(QPaintEvent *event)\n{\n    QPainter painter(this);\n\n    playerX += 5;\n\n    QPixmap player(\":/images/player.png\");\n    painter.drawPixmap(playerX, playerY, player);\n}\n```\n\nКакие две проблемы есть в этом коде?",
           "max_points": 6,
           "check_type": "ai",
