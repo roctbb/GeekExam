@@ -158,7 +158,7 @@ const success = ref('')
 const timeLimitInput = ref('')
 const uid = ref(1)
 
-const questionTypeOptions = ['text_input', 'code_input', 'true_false_table', 'interactive', 'multi_input']
+const questionTypeOptions = ['text_input', 'code_input', 'true_false_table', 'interactive', 'multi_input', 'choice_table']
 const checkTypeOptions = ['exact', 'checker', 'docker', 'ai', 'manual']
 
 const draft = reactive({

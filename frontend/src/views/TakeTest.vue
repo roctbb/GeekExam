@@ -58,8 +58,9 @@ import CodeInputQuestion from '../components/questions/CodeInputQuestion.vue'
 import TrueFalseTableQuestion from '../components/questions/TrueFalseTableQuestion.vue'
 import InteractiveQuestion from '../components/questions/InteractiveQuestion.vue'
 import MultiInputQuestion from '../components/questions/MultiInputQuestion.vue'
+import ChoiceTableQuestion from '../components/questions/ChoiceTableQuestion.vue'
 
-const questionComponents = { text_input: TextInputQuestion, code_input: CodeInputQuestion, true_false_table: TrueFalseTableQuestion, interactive: InteractiveQuestion, multi_input: MultiInputQuestion }
+const questionComponents = { text_input: TextInputQuestion, code_input: CodeInputQuestion, true_false_table: TrueFalseTableQuestion, interactive: InteractiveQuestion, multi_input: MultiInputQuestion, choice_table: ChoiceTableQuestion }
 
 const route = useRoute()
 const router = useRouter()

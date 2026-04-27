@@ -25,6 +25,12 @@
           <div v-else-if="q.type === 'multi_input'" class="mt-1">
             <span v-for="field in (q.ui_config?.fields || [])" :key="field.name" class="me-3">{{ field.label }} <strong>{{ answer(q.id)?.value?.[field.name] ?? '—' }}</strong></span>
           </div>
+          <div v-else-if="q.type === 'choice_table'" class="mt-1">
+            <span v-if="!answer(q.id)?.value?.answers?.length" class="text-muted">—</span>
+            <span v-for="(v, idx) in (answer(q.id)?.value?.answers || [])" :key="idx" class="me-2 badge bg-light text-dark border">
+              {{ q.ui_config?.items?.[idx]?.label || idx + 1 }}: <strong>{{ optionLabel(q, v) }}</strong>
+            </span>
+          </div>
           <span v-else class="ms-2">{{ answer(q.id)?.value?.text || '—' }}</span>
         </div>
         <div v-if="q.check_type === 'manual' || answer(q.id)?.check_state === 'checked'" class="row g-2 align-items-center">
@@ -47,6 +53,7 @@ const route = useRoute(), router = useRouter()
 const attempt = ref(null), grades = reactive({})
 async function del() { if (!confirm('Удалить прохождение?')) return; await api.deleteAttempt(route.params.id); router.back() }
 function answer(qid) { return attempt.value?.answers?.find(a => a.question_id === qid) }
+function optionLabel(q, value) { return q.ui_config?.options?.find(o => o.value === value)?.label || value || '—' }
 async function grade(qid, aid) {
   await api.gradeAnswer(aid, grades[qid].points, grades[qid].comment)
   const a = answer(qid); if (a) { a.points = grades[qid].points; a.check_comment = grades[qid].comment; a.check_state = 'checked' }

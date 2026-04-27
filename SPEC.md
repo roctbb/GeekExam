@@ -96,7 +96,7 @@ questions
 ├── id              (PK, Integer)
 ├── variant_id      (FK → variants.id)
 ├── order           (Integer — порядок вопроса в варианте)
-├── type            (String — тип вопроса: "text_input", "code_input", "true_false_table", "multi_input", "interactive")
+├── type            (String — тип вопроса: "text_input", "code_input", "true_false_table", "choice_table", "multi_input", "interactive")
 ├── title           (String — краткое название)
 ├── body            (Text — текст задания в Markdown, картинки по внешним URL)
 ├── max_points      (Integer — максимальный балл)
@@ -174,6 +174,14 @@ answers
 - **check_config:** `{"correct": [true, false, true, ...], "partial_scoring": true}`
 - При `partial_scoring: true` — баллы пропорционально количеству правильных ответов
 
+#### `choice_table` — Таблица классификации с вариантами
+
+- **UI:** Таблица, где каждая строка — пример, а каждый столбец — вариант выбора; в строке выбирается один radio
+- **ui_config:** `{"item_header": "Пример", "options": [{"value": "signal", "label": "Сигнал"}], "items": [{"label": "clicked() у кнопки"}]}`
+- **answer value:** `{"answers": ["signal", "slot", "event", ...]}`
+- **check_config:** `{"correct": ["signal", "slot", "event", ...], "partial_scoring": true}`
+- При `partial_scoring: true` — баллы пропорционально количеству правильно классифицированных строк
+
 #### `interactive` — Интерактивный вопрос (например, Brainfuck-отладчик)
 
 - **UI:** Кастомный Vue-компонент, указанный в `ui_config.component`
@@ -202,7 +210,7 @@ answers
 ### 6.1. `exact` — Сравнение с эталоном
 
 - Для `text_input`: сравнивает `answer_value.text` с `check_config.answer`. Поддержка: `case_sensitive`, `trim`, `normalize_whitespace`
-- Для `true_false_table`: сравнивает `answer_value.answers` с `check_config.correct`. При `partial_scoring` — баллы пропорционально
+- Для `true_false_table` и `choice_table`: сравнивает `answer_value.answers` с `check_config.correct`. При `partial_scoring` — баллы пропорционально
 - Возвращает от `0` до `max_points`
 
 ### 6.2. `checker` — Проверяющая программа
@@ -438,6 +446,7 @@ src/components/questions/
 ├── TextInputQuestion.vue        # text_input
 ├── CodeInputQuestion.vue        # code_input (CodeMirror)
 ├── TrueFalseTableQuestion.vue   # true_false_table
+├── ChoiceTableQuestion.vue      # choice_table
 ├── MultiInputQuestion.vue       # multi_input
 └── InteractiveQuestion.vue      # interactive (загрузка кастомного компонента)
 ```

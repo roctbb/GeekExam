@@ -25,6 +25,9 @@
           <div v-else-if="q.type === 'true_false_table'" class="mt-1">
             <TrueFalseTableQuestion :question="q" :modelValue="answer(q.id)?.value" :readonly="true" :checkResult="null" />
           </div>
+          <div v-else-if="q.type === 'choice_table'" class="mt-1">
+            <ChoiceTableQuestion :question="q" :modelValue="answer(q.id)?.value" :readonly="true" :checkResult="null" />
+          </div>
           <div v-else-if="q.type === 'multi_input'" class="mt-1">
             <span v-if="!answer(q.id)?.value" class="text-muted">—</span>
             <span v-for="field in (q.ui_config?.fields || [])" :key="field.name" class="me-3">
@@ -57,6 +60,7 @@ import { io } from 'socket.io-client'
 import { marked } from 'marked'
 import api from '../api'
 import TrueFalseTableQuestion from '../components/questions/TrueFalseTableQuestion.vue'
+import ChoiceTableQuestion from '../components/questions/ChoiceTableQuestion.vue'
 
 const route = useRoute()
 const attempt = ref(null)
