@@ -100,10 +100,19 @@ function onAnswerUpdate(value) {
 
 async function onIntermediateCheck() {
   const questionId = currentQuestion.value.id
+  const answerId = currentAnswer.value.id
   const prev = { ...currentAnswer.value }
+
+  // Flush any pending debounced save so the checker sees the latest value
+  if (saveTimeout) {
+    clearTimeout(saveTimeout)
+    saveTimeout = null
+    await api.saveAnswer(answerId, currentAnswer.value.value)
+  }
+
   store.updateAnswer(questionId, { check_state: 'checking' })
   try {
-    await api.checkAnswer(currentAnswer.value.id)
+    await api.checkAnswer(answerId)
   } catch (e) {
     // Roll back optimistic "checking" state when request fails.
     store.updateAnswer(questionId, {
