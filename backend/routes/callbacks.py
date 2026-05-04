@@ -116,17 +116,44 @@ def check_callback():
     if not answer:
         return jsonify({'error': 'Answer not found'}), 404
 
+    attempt_finished = answer.attempt.finished_at is not None
+
     if data.get('status') == 'success':
         max_pts = answer.question.max_points
         paste_max = data.get('max_points', 1) or 1
         paste_pts = data.get('points', 0) or 0
-        answer.points = round(max_pts * paste_pts / paste_max)
-        answer.check_state = 'checked'
-    else:
-        answer.points = 0
-        answer.check_state = 'error'
+        computed_points = round(max_pts * paste_pts / paste_max)
+        comment = _strip_nul_chars(data.get('comment'))
 
-    answer.check_comment = _strip_nul_chars(data.get('comment'))
+        if attempt_finished:
+            # Final check: persist score permanently.
+            answer.points = computed_points
+            answer.check_state = 'checked'
+            answer.check_comment = comment
+        else:
+            # Attempt still in progress — this is an intermediate async result.
+            # Do NOT persist points; reset to pending so final check re-runs on finish.
+            answer.check_state = 'pending'
+            answer.check_comment = None
+            db.session.commit()
+            _mark_callback_processed(data, answer_id)
+            from manage import socketio
+            socketio.emit('answer_checked', {
+                'answer_id': answer.id,
+                'question_id': answer.question_id,
+                'points': computed_points,
+                'check_state': 'intermediate',
+                'check_comment': comment,
+            }, room=f'attempt_{answer.attempt_id}')
+            return jsonify({'status': 'ok'})
+    else:
+        if attempt_finished:
+            answer.points = 0
+            answer.check_state = 'error'
+        else:
+            answer.check_state = 'pending'
+        answer.check_comment = _strip_nul_chars(data.get('comment'))
+
     db.session.commit()
     _mark_callback_processed(data, answer_id)
 
@@ -140,7 +167,8 @@ def check_callback():
         'check_comment': answer.check_comment,
     }, room=f'attempt_{answer.attempt_id}')
 
-    from celery_tasks.check_answer import _finalize_attempt_if_done
-    _finalize_attempt_if_done(answer.attempt_id)
+    if attempt_finished:
+        from celery_tasks.check_answer import _finalize_attempt_if_done_inner
+        _finalize_attempt_if_done_inner(answer.attempt_id)
 
     return jsonify({'status': 'ok'})

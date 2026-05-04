@@ -126,11 +126,20 @@ def finish_attempt(attempt_id):
     attempt = Attempt.query.get_or_404(attempt_id)
     if attempt.user_id != current_user_id():
         return jsonify({'error': 'Forbidden'}), 403
-    if attempt.finished_at:
-        return jsonify({'error': 'Тест уже завершён'}), 422
 
-    attempt.finished_at = datetime.utcnow()
+    # Atomic update: only set finished_at when it is still NULL.
+    # Prevents double-finalization from concurrent requests (e.g. timer + button).
+    now = datetime.utcnow()
+    updated = (
+        db.session.execute(
+            db.update(Attempt)
+            .where(Attempt.id == attempt_id, Attempt.finished_at.is_(None))
+            .values(finished_at=now)
+        ).rowcount
+    )
     db.session.commit()
+    if updated == 0:
+        return jsonify({'error': 'Тест уже завершён'}), 422
 
     from celery_tasks.check_answer import check_attempt_answers
     check_attempt_answers.delay(attempt_id)

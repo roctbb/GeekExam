@@ -67,6 +67,7 @@ const router = useRouter()
 const store = useAttemptStore()
 const activeTab = ref(0)
 const timeLeft = ref(null)
+const finishing = ref(false)
 let timerInterval = null, saveTimeout = null, socket = null
 
 const currentQuestion = computed(() => store.attempt?.questions[activeTab.value])
@@ -85,6 +86,7 @@ function tabClass(questionId) {
   const a = store.answers[questionId]
   if (!a) return ''
   if (a.check_state === 'checked') return a.points > 0 ? 'correct' : 'wrong'
+  // 'intermediate' is a transient UI-only state — show as answered, not scored.
   if (a.value) return 'answered'
   return ''
 }
@@ -92,7 +94,13 @@ function tabClass(questionId) {
 function formatTime(s) { return `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}` }
 
 function onAnswerUpdate(value) {
-  store.updateAnswer(currentQuestion.value.id, { value })
+  // Reset stale check results so the UI doesn't show old score after editing.
+  store.updateAnswer(currentQuestion.value.id, {
+    value,
+    check_state: 'pending',
+    points: null,
+    check_comment: null,
+  })
   clearTimeout(saveTimeout)
   const answerId = currentAnswer.value.id
   saveTimeout = setTimeout(() => api.saveAnswer(answerId, value), 2000)
@@ -110,7 +118,8 @@ async function onIntermediateCheck() {
     await api.saveAnswer(answerId, currentAnswer.value.value)
   }
 
-  store.updateAnswer(questionId, { check_state: 'checking' })
+  // Clear stale points/comment while new check is in flight.
+  store.updateAnswer(questionId, { check_state: 'checking', points: null, check_comment: null })
   try {
     await api.checkAnswer(answerId)
   } catch (e) {
@@ -124,10 +133,29 @@ async function onIntermediateCheck() {
   }
 }
 
+async function doFinish() {
+  if (finishing.value) return
+  finishing.value = true
+  clearInterval(timerInterval)
+  timerInterval = null
+  try {
+    await api.finishAttempt(route.params.id)
+    router.push(`/my-results/${route.params.id}`)
+  } catch (e) {
+    // 422 means already finished — navigate anyway.
+    if (e?.response?.status === 422) {
+      router.push(`/my-results/${route.params.id}`)
+    } else {
+      finishing.value = false
+      alert('Не удалось завершить тест. Попробуйте ещё раз.')
+    }
+  }
+}
+
 async function confirmFinish() {
+  if (finishing.value) return
   if (!confirm('Завершить тест? Это действие нельзя отменить.')) return
-  await api.finishAttempt(route.params.id)
-  router.push(`/my-results/${route.params.id}`)
+  await doFinish()
 }
 
 onMounted(async () => {
@@ -136,7 +164,7 @@ onMounted(async () => {
     timeLeft.value = store.attempt.time_left
     timerInterval = setInterval(() => {
       if (timeLeft.value > 0) timeLeft.value--
-      else { clearInterval(timerInterval); api.finishAttempt(route.params.id).then(() => router.push(`/my-results/${route.params.id}`)) }
+      else { doFinish() }
     }, 1000)
   }
   socket = io({ path: '/socket.io' })

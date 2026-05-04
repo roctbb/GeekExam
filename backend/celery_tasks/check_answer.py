@@ -24,30 +24,60 @@ def _strip_nul_chars(value):
     return value
 
 
-def _finalize_attempt_if_done(attempt_id, force_recalculate=False):
-    """Check if all answers are checked; if so, compute total and emit WebSocket."""
-    with _get_app().app_context():
-        from models import db, Attempt, Answer
-        attempt = Attempt.query.get(attempt_id)
-        if not attempt:
-            return
-        if attempt.is_checked and not force_recalculate:
-            return
-        answers = Answer.query.filter_by(attempt_id=attempt_id).all()
-        # manual answers with pending state are not auto-checked — skip finalization until teacher grades them
-        pending = [a for a in answers if a.check_state in ('pending', 'checking')]
-        if pending:
-            return
-        attempt.is_checked = True
-        attempt.total_points = sum(a.points or 0 for a in answers)
-        db.session.commit()
+def _finalize_attempt_if_done_inner(attempt_id, force_recalculate=False):
+    """Core finalization logic. Must be called within an active Flask app context.
 
-        from manage import socketio
-        socketio.emit('attempt_checked', {
-            'attempt_id': attempt_id,
-            'total_points': attempt.total_points,
-            'max_points': attempt.max_points,
-        }, room=f'attempt_{attempt_id}')
+    Uses an atomic UPDATE ... WHERE is_checked = FALSE to prevent double-finalization
+    when multiple Celery workers call this simultaneously.
+    """
+    from models import db, Attempt, Answer
+    attempt = Attempt.query.get(attempt_id)
+    if not attempt:
+        return
+    if attempt.is_checked and not force_recalculate:
+        return
+    answers = Answer.query.filter_by(attempt_id=attempt_id).all()
+    # manual answers with pending state are not auto-checked — skip finalization until teacher grades them
+    pending = [a for a in answers if a.check_state in ('pending', 'checking')]
+    if pending:
+        return
+    total_points = sum(a.points or 0 for a in answers)
+
+    if force_recalculate:
+        # Forced recalculation (teacher grading): always update.
+        updated = db.session.execute(
+            db.update(Attempt)
+            .where(Attempt.id == attempt_id)
+            .values(is_checked=True, total_points=total_points)
+        ).rowcount
+    else:
+        # Normal path: only finalize once — atomic guard prevents double WS emit.
+        updated = db.session.execute(
+            db.update(Attempt)
+            .where(Attempt.id == attempt_id, Attempt.is_checked == False)
+            .values(is_checked=True, total_points=total_points)
+        ).rowcount
+    db.session.commit()
+
+    if updated == 0:
+        return  # Another worker already finalized this attempt.
+
+    from manage import socketio
+    socketio.emit('attempt_checked', {
+        'attempt_id': attempt_id,
+        'total_points': total_points,
+        'max_points': attempt.max_points,
+    }, room=f'attempt_{attempt_id}')
+
+
+def _finalize_attempt_if_done(attempt_id, force_recalculate=False):
+    """Wrapper that creates its own app context for use from Celery tasks.
+
+    When calling from within a Flask route (which already has an app context),
+    use _finalize_attempt_if_done_inner() directly to avoid nested contexts.
+    """
+    with _get_app().app_context():
+        _finalize_attempt_if_done_inner(attempt_id, force_recalculate)
 
 
 @celery.task
@@ -104,8 +134,13 @@ def check_single_answer(answer_id, intermediate=False):
             else:
                 ok, error_message = bool(submit_result), None
             if not ok:
-                answer.check_state = 'error'
-                answer.check_comment = error_message or 'Ошибка отправки на проверку'
+                if intermediate:
+                    # Don't permanently mark as error for intermediate checks —
+                    # restore pending so the answer is still checked on finish.
+                    answer.check_state = 'pending'
+                else:
+                    answer.check_state = 'error'
+                    answer.check_comment = error_message or 'Ошибка отправки на проверку'
                 db.session.commit()
 
                 from manage import socketio
@@ -113,70 +148,115 @@ def check_single_answer(answer_id, intermediate=False):
                     'answer_id': answer.id,
                     'question_id': answer.question_id,
                     'points': answer.points,
-                    'check_state': answer.check_state,
-                    'check_comment': answer.check_comment,
+                    'check_state': 'error',
+                    'check_comment': error_message or 'Ошибка отправки на проверку',
                 }, room=f'attempt_{answer.attempt_id}')
         else:
             checker = get_checker(check_type)
             try:
                 points, comment = checker.check(answer.value, question.check_config or {}, question.max_points)
-                answer.points = points
-                answer.check_comment = _strip_nul_chars(comment)
-                answer.check_state = 'checked'
+                if intermediate:
+                    # For intermediate checks: send result via WS only, do NOT
+                    # persist points — answer must be re-evaluated on final submit.
+                    answer.check_state = 'pending'
+                    db.session.commit()
+                    from manage import socketio
+                    socketio.emit('answer_checked', {
+                        'answer_id': answer.id,
+                        'question_id': answer.question_id,
+                        'points': points,
+                        'check_state': 'intermediate',
+                        'check_comment': _strip_nul_chars(comment),
+                    }, room=f'attempt_{answer.attempt_id}')
+                else:
+                    answer.points = points
+                    answer.check_comment = _strip_nul_chars(comment)
+                    answer.check_state = 'checked'
+                    db.session.commit()
+                    from manage import socketio
+                    socketio.emit('answer_checked', {
+                        'answer_id': answer.id,
+                        'question_id': answer.question_id,
+                        'points': answer.points,
+                        'check_state': answer.check_state,
+                        'check_comment': answer.check_comment,
+                    }, room=f'attempt_{answer.attempt_id}')
+                    _finalize_attempt_if_done(answer.attempt_id)
             except Exception as e:
-                answer.check_state = 'error'
-                answer.check_comment = _strip_nul_chars(str(e))
-            db.session.commit()
-
-            from manage import socketio
-            socketio.emit('answer_checked', {
-                'answer_id': answer.id,
-                'question_id': answer.question_id,
-                'points': answer.points,
-                'check_state': answer.check_state,
-                'check_comment': answer.check_comment,
-            }, room=f'attempt_{answer.attempt_id}')
-
-            if not intermediate:
-                _finalize_attempt_if_done(answer.attempt_id)
+                answer.check_state = 'error' if not intermediate else 'pending'
+                answer.check_comment = _strip_nul_chars(str(e)) if not intermediate else answer.check_comment
+                db.session.commit()
+                from manage import socketio
+                socketio.emit('answer_checked', {
+                    'answer_id': answer.id,
+                    'question_id': answer.question_id,
+                    'points': None,
+                    'check_state': 'error',
+                    'check_comment': _strip_nul_chars(str(e)),
+                }, room=f'attempt_{answer.attempt_id}')
 
 
 @celery.task
 def check_attempt_answers(attempt_id):
-    """Triggered when student finishes the test. Queues checks for all pending answers."""
+    """Triggered when student finishes the test. Queues checks for all non-manual answers.
+
+    We reset 'checked' and 'error' answers back to 'pending' so that any answer
+    that was intermediate-checked (and thus already 'checked') is properly
+    re-evaluated against the final submitted value.
+    Answers currently 'checking' (async job in flight) are left alone — the
+    callback will handle them.
+    """
     with _get_app().app_context():
-        from models import Answer
+        from models import db, Answer
         answers = Answer.query.filter_by(attempt_id=attempt_id).all()
+        to_check = []
         for answer in answers:
-            if answer.check_state == 'pending' and answer.question.check_type != 'manual':
-                check_single_answer.delay(answer.id)
+            if answer.question.check_type == 'manual':
+                continue
+            if answer.check_state == 'checking':
+                # Async job already submitted; callback will finalize.
+                continue
+            # Reset so the definitive check runs regardless of prior intermediate result.
+            answer.check_state = 'pending'
+            answer.points = None
+            answer.check_comment = None
+            to_check.append(answer.id)
+        db.session.commit()
+        for answer_id in to_check:
+            check_single_answer.delay(answer_id)
 
 
 @celery.task
 def recover_pending_answers():
-    """On startup: re-queue answers stuck in pending/checking for finished attempts."""
+    """On startup: re-queue answers stuck in pending for finished attempts.
+
+    Only recovers answers in 'pending' state — 'checking' means an async job
+    was already submitted to GeekPaste and a callback is expected; re-queuing
+    those would create duplicate tasks.  If the callback never arrives they will
+    remain stuck until manual intervention or the next restart, which is the
+    safer failure mode.
+    """
     try:
         with _get_app().app_context():
             from models import db, Answer, Attempt
-            from sqlalchemy import and_
             stuck = (
                 Answer.query
                 .join(Attempt)
                 .filter(
                     Attempt.finished_at.isnot(None),
-                    Answer.check_state.in_(['pending', 'checking']),
+                    Answer.check_state == 'pending',
                 )
                 .all()
             )
             count = 0
+            to_queue = []
             for answer in stuck:
                 if answer.question.check_type != 'manual':
-                    answer.check_state = 'pending'
+                    to_queue.append(answer.id)
                     count += 1
-            db.session.commit()
-            for answer in stuck:
-                if answer.question.check_type != 'manual':
-                    check_single_answer.delay(answer.id)
+            # No state change needed — already 'pending'.
+            for answer_id in to_queue:
+                check_single_answer.delay(answer_id)
             print(f'[recover] Re-queued {count} stuck answers')
     except Exception as e:
         print(f'[recover] Skipped: {e}')
@@ -202,7 +282,18 @@ def finish_expired_attempts():
         )
         for attempt in active:
             elapsed_minutes = (now - attempt.started_at).total_seconds() / 60
-            if elapsed_minutes >= attempt.test.time_limit:
-                attempt.finished_at = now
+            if elapsed_minutes < attempt.test.time_limit:
+                continue
+            try:
+                # Atomic finish — same guard as the HTTP endpoint.
+                updated = db.session.execute(
+                    db.update(Attempt)
+                    .where(Attempt.id == attempt.id, Attempt.finished_at.is_(None))
+                    .values(finished_at=now)
+                ).rowcount
                 db.session.commit()
-                check_attempt_answers.delay(attempt.id)
+                if updated:
+                    check_attempt_answers.delay(attempt.id)
+            except Exception as e:
+                db.session.rollback()
+                print(f'[finish_expired] Failed to finish attempt {attempt.id}: {e}')

@@ -29,7 +29,14 @@ def save_answer(answer_id):
         return jsonify({'error': 'Тест уже завершён'}), 422
 
     data = request.get_json()
-    answer.value = _strip_nul_chars(data.get('value'))
+    new_value = _strip_nul_chars(data.get('value'))
+    # If value changed after an intermediate check, reset check state so the
+    # answer is re-evaluated on final submission.
+    if answer.value != new_value and answer.question.check_type != 'manual':
+        answer.check_state = 'pending'
+        answer.points = None
+        answer.check_comment = None
+    answer.value = new_value
     db.session.commit()
     return jsonify({'status': 'saved'})
 
@@ -47,11 +54,19 @@ def intermediate_check(answer_id):
         return jsonify({'error': 'Промежуточная проверка недоступна'}), 422
     if answer.question.check_type == 'manual':
         return jsonify({'error': 'Промежуточная проверка недоступна для ручной проверки'}), 422
-    if answer.check_state == 'checking':
-        return jsonify({'error': 'Проверка уже выполняется'}), 422
 
-    answer.check_state = 'checking'
+    # Atomic compare-and-swap: only transition pending→checking, never checking→checking.
+    # This prevents a double-click / network-retry from dispatching two concurrent tasks.
+    updated = (
+        db.session.execute(
+            db.update(Answer)
+            .where(Answer.id == answer_id, Answer.check_state == 'pending')
+            .values(check_state='checking')
+        ).rowcount
+    )
     db.session.commit()
+    if updated == 0:
+        return jsonify({'error': 'Проверка уже выполняется'}), 422
 
     from celery_tasks.check_answer import check_single_answer
     check_single_answer.delay(answer_id, intermediate=True)
@@ -69,8 +84,9 @@ def grade_answer(answer_id):
     answer.check_state = 'checked'
     db.session.commit()
 
-    # Check if all answers in attempt are now checked
-    from celery_tasks.check_answer import _finalize_attempt_if_done
-    _finalize_attempt_if_done(answer.attempt_id, force_recalculate=True)
+    # Check if all answers in attempt are now checked.
+    # Use _inner variant — we're already inside a Flask request context.
+    from celery_tasks.check_answer import _finalize_attempt_if_done_inner
+    _finalize_attempt_if_done_inner(answer.attempt_id, force_recalculate=True)
 
     return jsonify({'status': 'graded'})

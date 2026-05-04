@@ -19,9 +19,16 @@ export const useAttemptStore = defineStore('attempt', () => {
   function applyWsUpdate(payload) {
     const a = answers.value[payload.question_id]
     if (a) {
-      a.points = payload.points
-      a.check_state = payload.check_state
       a.check_comment = payload.check_comment
+      if (payload.check_state === 'intermediate') {
+        // Intermediate result: show score in UI but keep answer in 'pending'
+        // state so it is re-evaluated on final submission.
+        a.points = payload.points
+        a.check_state = 'intermediate'
+      } else {
+        a.points = payload.points
+        a.check_state = payload.check_state
+      }
     }
   }
 
