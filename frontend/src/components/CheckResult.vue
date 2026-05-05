@@ -3,6 +3,10 @@
     <div v-if="result.check_state === 'checking'" class="ge-check pending">
       <span class="spinner-border spinner-border-sm" /> Проверяется...
     </div>
+    <div v-else-if="result.check_state === 'intermediate'" class="ge-check" :class="result.points > 0 ? 'success' : 'error'">
+      {{ result.points > 0 ? '✅' : '❌' }} {{ result.points }} б. — {{ result.check_comment }}
+      <span class="text-muted small ms-1">(предварительно)</span>
+    </div>
     <div v-else-if="result.check_state === 'checked'" class="ge-check" :class="result.points > 0 ? 'success' : 'error'">
       {{ result.points > 0 ? '✅' : '❌' }} {{ result.points }} б. — {{ result.check_comment }}
     </div>
