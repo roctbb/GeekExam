@@ -35,5 +35,6 @@ export default {
   // Answers
   saveAnswer: (id, value) => api.put(`/answers/${id}`, { value }),
   checkAnswer: (id) => api.post(`/answers/${id}/check`),
+  recheckAnswer: (id) => api.post(`/answers/${id}/recheck`),
   gradeAnswer: (id, points, comment) => api.put(`/answers/${id}/grade`, { points, comment }),
 }

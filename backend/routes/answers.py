@@ -74,6 +74,34 @@ def intermediate_check(answer_id):
     return jsonify({'status': 'checking'})
 
 
+@answers_bp.route('/api/answers/<int:answer_id>/recheck', methods=['POST'])
+@teacher_required
+def recheck_answer(answer_id):
+    """Teacher-triggered re-check for async check types (ai, docker)."""
+    answer = Answer.query.get_or_404(answer_id)
+    question = answer.question
+    from checkers.registry import is_async_check
+    if not is_async_check(question.check_type):
+        return jsonify({'error': 'Перепроверка доступна только для ai/docker вопросов'}), 422
+
+    # Atomic transition: only allow if not already checking.
+    updated = (
+        db.session.execute(
+            db.update(Answer)
+            .where(Answer.id == answer_id, Answer.check_state != 'checking')
+            .values(check_state='checking')
+        ).rowcount
+    )
+    db.session.commit()
+    if updated == 0:
+        return jsonify({'error': 'Проверка уже выполняется'}), 422
+
+    from celery_tasks.check_answer import check_single_answer
+    check_single_answer.delay(answer_id, intermediate=False)
+
+    return jsonify({'status': 'checking'})
+
+
 @answers_bp.route('/api/answers/<int:answer_id>/grade', methods=['PUT'])
 @teacher_required
 def grade_answer(answer_id):
