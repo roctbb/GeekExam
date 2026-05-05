@@ -59,9 +59,12 @@ const answers = computed(() => {
   return statements.value.map(() => false)
 })
 
-// Emit defaults on mount if no value saved yet
+// Emit defaults on mount only if truly no value has been saved yet.
+// Do NOT emit if modelValue exists at all — emitting on re-mount (e.g. tab
+// switch) would trigger onAnswerUpdate in TakeTest and wipe an intermediate
+// check result that the student already received.
 watch(statements, (stmts) => {
-  if (!props.modelValue?.answers && stmts.length && !props.readonly) {
+  if (props.modelValue == null && stmts.length && !props.readonly) {
     emit('update:modelValue', { answers: stmts.map(() => false) })
   }
 }, { immediate: true })

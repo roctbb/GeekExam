@@ -94,15 +94,19 @@ function tabClass(questionId) {
 function formatTime(s) { return `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}` }
 
 function onAnswerUpdate(value) {
-  // Reset stale check results so the UI doesn't show old score after editing.
-  store.updateAnswer(currentQuestion.value.id, {
-    value,
-    check_state: 'pending',
-    points: null,
-    check_comment: null,
-  })
+  const questionId = currentQuestion.value.id
+  const prev = currentAnswer.value
+
+  // Only reset stale check results when the value actually changed.
+  // Comparing by JSON handles table/object answers (arrays, dicts).
+  const valueChanged = JSON.stringify(prev.value) !== JSON.stringify(value)
+  const patch = valueChanged
+    ? { value, check_state: 'pending', points: null, check_comment: null }
+    : { value }
+
+  store.updateAnswer(questionId, patch)
   clearTimeout(saveTimeout)
-  const answerId = currentAnswer.value.id
+  const answerId = prev.id
   saveTimeout = setTimeout(() => api.saveAnswer(answerId, value), 2000)
 }
 
