@@ -2,7 +2,11 @@
   <div v-if="attempt" class="ge-fade-in">
     <div class="ge-page-header">
       <h4>{{ attempt.test_title }} — {{ attempt.user_name }}</h4>
-      <div class="d-flex gap-2 align-items-center">
+      <div class="d-flex gap-2 align-items-center flex-wrap justify-content-end">
+        <button class="btn btn-sm btn-outline-secondary" :disabled="recheckingAll || !canRecheckAttempt" @click="recheckAll">
+          <span v-if="recheckingAll" class="spinner-border spinner-border-sm me-1" />
+          {{ recheckingAll ? 'Запускаю...' : 'Перепроверить всю работу' }}
+        </button>
         <span class="ge-score">{{ attempt.total_points ?? '—' }} / {{ attempt.max_points }}</span>
         <button class="btn btn-sm btn-outline-danger" @click="del">Удалить</button>
       </div>
@@ -77,19 +81,29 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { io } from 'socket.io-client'
 import api from '../../api'
 
 const route = useRoute(), router = useRouter()
 const attempt = ref(null), grades = reactive({})
+const recheckingAll = ref(false)
 let socket = null
 
 function answer(qid) { return attempt.value?.answers?.find(a => a.question_id === qid) }
 function optionLabel(q, value) { return q.ui_config?.options?.find(o => o.value === value)?.label || value || '—' }
 function isAutoCheck(q) { return q.check_type !== 'manual' }
 function isAsyncCheck(q) { return q.check_type === 'ai' || q.check_type === 'docker' }
+
+const canRecheckAttempt = computed(() => {
+  if (!attempt.value?.finished_at) return false
+  const autoAnswers = attempt.value.questions
+    .filter(isAutoCheck)
+    .map(q => answer(q.id))
+    .filter(Boolean)
+  return autoAnswers.length > 0 && autoAnswers.every(a => a.check_state !== 'checking')
+})
 
 async function del() {
   if (!confirm('Удалить прохождение?')) return
@@ -119,13 +133,46 @@ async function recheck(qid, aid) {
   }
 }
 
-onMounted(async () => {
-  const { data } = await api.getAttempt(route.params.id)
-  attempt.value = data
+async function recheckAll() {
+  if (!attempt.value || !canRecheckAttempt.value) return
+  if (!confirm('Перепроверить всю работу? Баллы по автопроверяемым вопросам будут обновлены.')) return
+
+  recheckingAll.value = true
+  const autoAnswers = attempt.value.questions
+    .filter(isAutoCheck)
+    .map(q => answer(q.id))
+    .filter(Boolean)
+
+  try {
+    for (const a of autoAnswers) {
+      a.check_state = 'checking'
+      a.points = null
+      a.check_comment = null
+    }
+    attempt.value.is_checked = false
+    attempt.value.total_points = null
+    await api.recheckAttempt(route.params.id)
+  } catch (e) {
+    alert(e?.response?.data?.error || 'Не удалось запустить перепроверку работы')
+    const { data } = await api.getAttempt(route.params.id)
+    attempt.value = data
+    syncGrades(data)
+  } finally {
+    recheckingAll.value = false
+  }
+}
+
+function syncGrades(data) {
   for (const q of data.questions) {
     const a = answer(q.id)
     grades[q.id] = { points: a?.points ?? 0, comment: a?.check_comment ?? '' }
   }
+}
+
+onMounted(async () => {
+  const { data } = await api.getAttempt(route.params.id)
+  attempt.value = data
+  syncGrades(data)
 
   // Subscribe to live check results so recheck updates without page reload.
   socket = io({ path: '/socket.io' })

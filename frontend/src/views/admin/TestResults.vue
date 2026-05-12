@@ -32,6 +32,10 @@
             </td>
             <td class="text-end">
               <RouterLink :to="`/admin/attempts/${a.id}`" class="btn btn-sm btn-outline-primary me-1">Детали</RouterLink>
+              <button v-if="a.finished_at" class="btn btn-sm btn-outline-secondary me-1" :disabled="isRechecking(a.id)" @click="recheck(a)">
+                <span v-if="isRechecking(a.id)" class="spinner-border spinner-border-sm me-1" />
+                {{ isRechecking(a.id) ? 'Запуск...' : 'Перепроверить' }}
+              </button>
               <button class="btn btn-sm btn-outline-danger" @click="del(a.id)">Удалить</button>
             </td>
           </tr>
@@ -50,11 +54,34 @@ const route = useRoute()
 const attempts = ref([]), loading = ref(true)
 const sortBy = ref('started_at')
 const sortDir = ref('desc')
+const recheckingIds = ref(new Set())
 const fmt = (d) => d ? new Date(d).toLocaleString('ru') : ''
 async function del(id) { if (!confirm('Удалить прохождение?')) return; await api.deleteAttempt(id); attempts.value = attempts.value.filter(a => a.id !== id) }
+const isRechecking = (id) => recheckingIds.value.has(id)
 
 function toggleSortDir() {
   sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
+}
+
+function setRechecking(id, value) {
+  const next = new Set(recheckingIds.value)
+  if (value) next.add(id)
+  else next.delete(id)
+  recheckingIds.value = next
+}
+
+async function recheck(attempt) {
+  if (!confirm(`Перепроверить работу ${attempt.user_name}? Баллы по автопроверяемым вопросам будут обновлены.`)) return
+  setRechecking(attempt.id, true)
+  try {
+    await api.recheckAttempt(attempt.id)
+    attempt.is_checked = false
+    attempt.total_points = null
+  } catch (e) {
+    alert(e?.response?.data?.error || 'Не удалось запустить перепроверку работы')
+  } finally {
+    setRechecking(attempt.id, false)
+  }
 }
 
 const sortedAttempts = computed(() => {

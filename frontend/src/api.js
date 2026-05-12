@@ -30,6 +30,7 @@ export default {
   getAttempt: (id) => api.get(`/attempts/${id}`),
   deleteAttempt: (id) => api.delete(`/attempts/${id}`),
   finishAttempt: (id) => api.post(`/attempts/${id}/finish`),
+  recheckAttempt: (id) => api.post(`/attempts/${id}/recheck`),
   myAttempts: () => api.get('/my-attempts'),
   myAttemptResults: (id) => api.get(`/my-attempts/${id}/results`),
   // Answers

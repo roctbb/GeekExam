@@ -147,6 +147,38 @@ def finish_attempt(attempt_id):
     return jsonify({'status': 'finished'})
 
 
+@attempts_bp.route('/api/attempts/<int:attempt_id>/recheck', methods=['POST'])
+@teacher_required
+def recheck_attempt(attempt_id):
+    attempt = Attempt.query.get_or_404(attempt_id)
+    if not attempt.finished_at:
+        return jsonify({'error': 'Перепроверка доступна только для завершённых работ'}), 422
+
+    to_check = []
+    for answer in attempt.answers:
+        if answer.question.check_type == 'manual':
+            continue
+        if answer.check_state == 'checking':
+            continue
+        answer.check_state = 'checking'
+        answer.points = None
+        answer.check_comment = None
+        to_check.append(answer.id)
+
+    if not to_check:
+        return jsonify({'error': 'Нет ответов для автоматической перепроверки'}), 422
+
+    attempt.is_checked = False
+    attempt.total_points = None
+    db.session.commit()
+
+    from celery_tasks.check_answer import check_single_answer
+    for answer_id in to_check:
+        check_single_answer.delay(answer_id, intermediate=False)
+
+    return jsonify({'status': 'checking', 'queued': len(to_check)})
+
+
 @attempts_bp.route('/api/my-attempts', methods=['GET'])
 @api_login_required
 def my_attempts():
