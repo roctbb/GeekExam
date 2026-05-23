@@ -19,7 +19,7 @@
       <div class="card-body">
 
         <!-- Question body -->
-        <div v-if="q.body" class="mb-3 text-muted small border-start border-2 ps-2" style="white-space: pre-wrap">{{ q.body }}</div>
+        <MarkdownBody v-if="q.body" class="mb-3 border-start border-2 ps-2" :source="q.body" compact />
 
         <!-- Answer display -->
         <div class="mb-3">
@@ -85,6 +85,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { io } from 'socket.io-client'
 import api from '../../api'
+import MarkdownBody from '../../components/MarkdownBody.vue'
 
 const route = useRoute(), router = useRouter()
 const attempt = ref(null), grades = reactive({})

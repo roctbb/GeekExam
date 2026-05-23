@@ -30,7 +30,7 @@
               <td class="text-center">{{ q.order + 1 }}</td>
               <td>
                 <div class="fw-semibold">{{ q.title }}</div>
-                <div v-if="q.body" class="small text-muted mt-1 ge-question-body">{{ q.body }}</div>
+                <MarkdownBody v-if="q.body" class="mt-1" :source="q.body" compact />
                 <span v-else class="small text-muted">—</span>
               </td>
               <td><code>{{ q.type }}</code></td><td><code>{{ q.check_type }}</code></td>
@@ -48,6 +48,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import api from '../../api'
+import MarkdownBody from '../../components/MarkdownBody.vue'
 const route = useRoute()
 const test = ref(null), newCode = ref('')
 onMounted(async () => { const { data } = await api.getTest(route.params.id); test.value = data; newCode.value = data.code || '' })
@@ -55,9 +56,3 @@ async function activate() { await api.activateTest(test.value.id); test.value.is
 async function deactivate() { await api.deactivateTest(test.value.id); test.value.is_active = false }
 async function saveCode() { const { data } = await api.setTestCode(test.value.id, newCode.value); test.value.code = data.code }
 </script>
-
-<style scoped>
-.ge-question-body {
-  white-space: pre-wrap;
-}
-</style>

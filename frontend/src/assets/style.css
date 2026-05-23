@@ -111,6 +111,105 @@ pre.ge-code { background: #1e293b; color: #e2e8f0; border-radius: 12px; padding:
 textarea.ge-code-editor { background: #1e293b !important; color: #e2e8f0 !important; border: 1px solid #334155; border-radius: 12px; font-family: 'JetBrains Mono', 'Fira Code', monospace; }
 textarea.ge-code-editor:focus { border-color: var(--ge-primary); box-shadow: 0 0 0 3px rgba(99,102,241,.15); }
 
+/* Markdown */
+.ge-markdown {
+  color: var(--ge-text);
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.ge-markdown > :first-child { margin-top: 0; }
+.ge-markdown > :last-child { margin-bottom: 0; }
+.ge-markdown p,
+.ge-markdown ul,
+.ge-markdown ol,
+.ge-markdown blockquote,
+.ge-markdown table,
+.ge-markdown .ge-code-block { margin-bottom: .9rem; }
+.ge-markdown h1,
+.ge-markdown h2,
+.ge-markdown h3,
+.ge-markdown h4,
+.ge-markdown h5,
+.ge-markdown h6 {
+  margin: 1rem 0 .5rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
+.ge-markdown h1 { font-size: 1.45rem; }
+.ge-markdown h2 { font-size: 1.3rem; }
+.ge-markdown h3 { font-size: 1.15rem; }
+.ge-markdown h4,
+.ge-markdown h5,
+.ge-markdown h6 { font-size: 1rem; }
+.ge-markdown a { color: var(--ge-primary); font-weight: 600; }
+.ge-markdown blockquote {
+  border-left: 3px solid var(--ge-primary-light);
+  color: #475569;
+  padding: .15rem 0 .15rem .85rem;
+}
+.ge-markdown code:not(.hljs) {
+  background: rgba(99,102,241,.09);
+  border: 1px solid rgba(99,102,241,.12);
+  border-radius: 6px;
+  color: #4f46e5;
+  font-size: .9em;
+  padding: .08rem .28rem;
+}
+.ge-markdown .ge-code-block {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 10px;
+  color: #e2e8f0;
+  font-size: .86rem;
+  line-height: 1.55;
+  overflow-x: auto;
+  padding: .9rem 1rem;
+}
+.ge-markdown .ge-code-block code {
+  background: transparent;
+  display: block;
+  padding: 0;
+}
+.ge-markdown table {
+  background: #fff;
+  border-collapse: collapse;
+  border-radius: 10px;
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.ge-markdown th,
+.ge-markdown td {
+  border: 1px solid #e2e8f0;
+  padding: .45rem .65rem;
+}
+.ge-markdown th {
+  background: #f1f5f9;
+  font-weight: 700;
+}
+.ge-markdown-compact {
+  color: #475569;
+  font-size: .875rem;
+  line-height: 1.55;
+}
+.ge-markdown-compact p,
+.ge-markdown-compact ul,
+.ge-markdown-compact ol,
+.ge-markdown-compact blockquote,
+.ge-markdown-compact table,
+.ge-markdown-compact .ge-code-block { margin-bottom: .6rem; }
+.ge-markdown-compact h1,
+.ge-markdown-compact h2,
+.ge-markdown-compact h3,
+.ge-markdown-compact h4,
+.ge-markdown-compact h5,
+.ge-markdown-compact h6 { font-size: .95rem; margin: .65rem 0 .35rem; }
+.ge-markdown-compact .ge-code-block {
+  border-radius: 8px;
+  font-size: .78rem;
+  padding: .65rem .75rem;
+}
+
 /* Check result */
 .ge-check { display: flex; align-items: flex-start; gap: 8px; padding: .6rem .8rem; border-radius: 10px; margin-top: .5rem; font-size: .85rem; }
 .ge-check.success { background: rgba(16,185,129,.08); color: #059669; }

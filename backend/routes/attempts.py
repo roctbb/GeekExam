@@ -1,5 +1,5 @@
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify, request
 from sqlalchemy.exc import IntegrityError
@@ -11,10 +11,30 @@ attempts_bp = Blueprint('attempts', __name__)
 
 
 def _attempt_detail(attempt, include_check_config=False):
+    server_now = datetime.utcnow()
     time_left = None
-    if attempt.test.time_limit and attempt.started_at and not attempt.finished_at:
-        elapsed = (datetime.utcnow() - attempt.started_at).total_seconds()
-        time_left = max(0, attempt.test.time_limit * 60 - int(elapsed))
+    time_deadline_at = None
+    if attempt.test.time_limit and attempt.started_at:
+        time_deadline_at = attempt.started_at + timedelta(minutes=attempt.test.time_limit)
+        if not attempt.finished_at:
+            time_left = max(0, int((time_deadline_at - server_now).total_seconds()))
+
+    questions = []
+    for q in attempt.variant.questions:
+        question = {
+            'id': q.id,
+            'order': q.order,
+            'type': q.type,
+            'title': q.title,
+            'body': q.body,
+            'max_points': q.max_points,
+            'check_type': q.check_type,
+            'ui_config': q.ui_config,
+            'allow_intermediate_check': q.allow_intermediate_check,
+        }
+        if include_check_config:
+            question['check_config'] = q.check_config
+        questions.append(question)
 
     return {
         'id': attempt.id,
@@ -27,21 +47,9 @@ def _attempt_detail(attempt, include_check_config=False):
         'total_points': attempt.total_points,
         'max_points': attempt.max_points,
         'time_left': time_left,
-        'questions': [
-            {
-                'id': q.id,
-                'order': q.order,
-                'type': q.type,
-                'title': q.title,
-                'body': q.body,
-                'max_points': q.max_points,
-                'check_type': q.check_type,
-                'ui_config': q.ui_config,
-                'allow_intermediate_check': q.allow_intermediate_check,
-                **(({'check_config': q.check_config} if include_check_config else {})),
-            }
-            for q in attempt.variant.questions
-        ],
+        'server_time': server_now.isoformat() + 'Z',
+        'time_deadline_at': time_deadline_at.isoformat() + 'Z' if time_deadline_at else None,
+        'questions': questions,
         'answers': [
             {
                 'id': a.id,

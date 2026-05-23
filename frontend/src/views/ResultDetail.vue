@@ -18,7 +18,7 @@
         <span v-else class="badge bg-secondary">—/{{ q.max_points }}</span>
       </div>
       <div class="card-body">
-        <div v-if="q.body" class="mb-2 text-muted small" v-html="renderBody(q.body)" />
+        <MarkdownBody v-if="q.body" class="mb-2" :source="q.body" compact />
         <div class="mb-2">
           <strong class="small">Ваш ответ:</strong>
           <pre v-if="q.type === 'code_input'" class="ge-code mt-1">{{ answer(q.id)?.value?.code || '—' }}</pre>
@@ -57,8 +57,8 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { io } from 'socket.io-client'
-import { marked } from 'marked'
 import api from '../api'
+import MarkdownBody from '../components/MarkdownBody.vue'
 import TrueFalseTableQuestion from '../components/questions/TrueFalseTableQuestion.vue'
 import ChoiceTableQuestion from '../components/questions/ChoiceTableQuestion.vue'
 
@@ -67,7 +67,6 @@ const attempt = ref(null)
 let socket = null
 
 function answer(qid) { return attempt.value?.answers?.find(a => a.question_id === qid) }
-function renderBody(body) { return body ? marked(body) : '' }
 
 onMounted(async () => {
   const { data } = await api.myAttemptResults(route.params.id)
