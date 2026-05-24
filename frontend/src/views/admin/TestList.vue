@@ -6,13 +6,14 @@
     </div>
     <div class="table-responsive">
       <table class="table table-hover align-middle">
-        <thead><tr><th>Название</th><th>Код</th><th>Статус</th><th>Вариантов</th><th></th></tr></thead>
+        <thead><tr><th>Название</th><th>Код</th><th>Статус</th><th>Вариантов</th><th>Попыток</th><th></th></tr></thead>
         <tbody>
           <tr v-for="t in tests" :key="t.id">
             <td class="fw-semibold">{{ t.title }}</td>
             <td><code v-if="t.code" class="fs-6">{{ t.code }}</code><span v-else class="text-muted">—</span></td>
             <td><span :class="t.is_active ? 'badge bg-success' : 'badge bg-secondary'">{{ t.is_active ? 'Активен' : 'Стоп' }}</span></td>
             <td>{{ t.variant_count ?? '—' }}</td>
+            <td>{{ t.attempt_count ?? 0 }}</td>
             <td class="text-end">
               <RouterLink :to="`/admin/tests/${t.id}`" class="btn btn-sm btn-outline-secondary me-1">Открыть</RouterLink>
               <RouterLink :to="`/admin/tests/${t.id}/edit`" class="btn btn-sm btn-outline-secondary me-1">Редактировать</RouterLink>
@@ -42,7 +43,10 @@ const deletingId = ref(null)
 onMounted(async () => { const { data } = await api.getTests(); tests.value = data })
 
 async function removeTest(test) {
-  const ok = confirm(`Удалить тест «${test.title}»? Это действие нельзя отменить.`)
+  const attemptsText = test.attempt_count
+    ? ` Будут удалены все попытки: ${test.attempt_count}.`
+    : ''
+  const ok = confirm(`Удалить тест «${test.title}»?${attemptsText} Это действие нельзя отменить.`)
   if (!ok) return
 
   deletingId.value = test.id

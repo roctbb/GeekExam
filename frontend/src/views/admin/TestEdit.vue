@@ -8,6 +8,9 @@
 
       <div v-if="error" class="alert alert-danger py-2 small">{{ error }}</div>
       <div v-if="success" class="alert alert-success py-2 small">{{ success }}</div>
+      <div v-if="hasAttempts" class="alert alert-warning py-2 small">
+        У теста уже есть прохождения. Можно редактировать существующие вопросы и варианты, но нельзя добавлять или удалять их.
+      </div>
 
       <div class="card mb-4">
         <div class="card-header d-flex justify-content-between align-items-center">
@@ -45,7 +48,9 @@
         <div class="card-header d-flex justify-content-between align-items-center">
           <span class="fw-semibold">Вопросы и варианты</span>
           <div class="d-flex gap-2">
-            <button class="btn btn-outline-secondary btn-sm" @click="addVariant">+ Вариант</button>
+            <input ref="jsonInput" class="d-none" type="file" accept=".json,application/json" @change="onJsonFile" />
+            <button class="btn btn-outline-primary btn-sm" :disabled="loading" @click="chooseJsonFile">Загрузить JSON</button>
+            <button class="btn btn-outline-secondary btn-sm" :disabled="hasAttempts" @click="addVariant">+ Вариант</button>
             <button class="btn btn-primary btn-sm" :disabled="loading" @click="saveQuestions">
               <span v-if="loading && savingSection === 'questions'" class="spinner-border spinner-border-sm me-1" />
               Сохранить вопросы
@@ -67,12 +72,12 @@
                   :placeholder="`Вариант ${variantIndex + 1}`"
                 />
               </div>
-              <button class="btn btn-outline-danger btn-sm mt-4" @click="removeVariant(variantIndex)">Удалить вариант</button>
+              <button class="btn btn-outline-danger btn-sm mt-4" :disabled="hasAttempts" @click="removeVariant(variantIndex)">Удалить вариант</button>
             </div>
 
             <div class="d-flex justify-content-between align-items-center mb-2">
               <h6 class="mb-0">Вопросы</h6>
-              <button class="btn btn-outline-secondary btn-sm" @click="addQuestion(variantIndex)">+ Вопрос</button>
+              <button class="btn btn-outline-secondary btn-sm" :disabled="hasAttempts" @click="addQuestion(variantIndex)">+ Вопрос</button>
             </div>
 
             <div v-if="!variant.questions.length" class="text-muted small">В этом варианте пока нет вопросов.</div>
@@ -84,7 +89,7 @@
             >
               <div class="card-header d-flex justify-content-between align-items-center py-2">
                 <strong>Вопрос {{ questionIndex + 1 }}</strong>
-                <button class="btn btn-outline-danger btn-sm" @click="removeQuestion(variantIndex, questionIndex)">Удалить</button>
+                <button class="btn btn-outline-danger btn-sm" :disabled="hasAttempts" @click="removeQuestion(variantIndex, questionIndex)">Удалить</button>
               </div>
 
               <div class="card-body">
@@ -156,6 +161,8 @@ const savingSection = ref('')
 const error = ref('')
 const success = ref('')
 const timeLimitInput = ref('')
+const hasAttempts = ref(false)
+const jsonInput = ref(null)
 const uid = ref(1)
 
 const questionTypeOptions = ['text_input', 'code_input', 'true_false_table', 'interactive', 'multi_input', 'choice_table']
@@ -328,19 +335,72 @@ function saveQuestions() {
   return save('questions')
 }
 
+function chooseJsonFile() {
+  jsonInput.value?.click()
+}
+
+async function onJsonFile(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+
+  error.value = ''
+  success.value = ''
+  loading.value = true
+  savingSection.value = 'questions'
+  try {
+    const payload = JSON.parse(await file.text())
+    validateImportedPayload(payload)
+    await api.updateTest(route.params.id, payload)
+    setDraftFromPayload(payload)
+    success.value = 'JSON загружен и тест сохранён'
+  } catch (e) {
+    error.value = e.response?.data?.error || e.message || 'Не удалось загрузить JSON'
+  } finally {
+    loading.value = false
+    savingSection.value = ''
+  }
+}
+
+function validateImportedPayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('JSON должен содержать объект теста')
+  }
+  if (!Array.isArray(payload.variants)) {
+    throw new Error('В JSON должен быть массив variants')
+  }
+
+  if (!hasAttempts.value) return
+
+  if (payload.variants.length !== draft.variants.length) {
+    throw new Error('У теста уже есть прохождения: количество вариантов менять нельзя')
+  }
+  payload.variants.forEach((variant, index) => {
+    const importedQuestions = Array.isArray(variant.questions) ? variant.questions.length : 0
+    const currentQuestions = draft.variants[index]?.questions.length || 0
+    if (importedQuestions !== currentQuestions) {
+      throw new Error(`У теста уже есть прохождения: количество вопросов в варианте ${index + 1} менять нельзя`)
+    }
+  })
+}
+
 function addVariant() {
+  if (hasAttempts.value) return
   draft.variants.push(makeVariant({}, draft.variants.length))
 }
 
 function removeVariant(index) {
+  if (hasAttempts.value) return
   draft.variants.splice(index, 1)
 }
 
 function addQuestion(variantIndex) {
+  if (hasAttempts.value) return
   draft.variants[variantIndex].questions.push(makeQuestion())
 }
 
 function removeQuestion(variantIndex, questionIndex) {
+  if (hasAttempts.value) return
   draft.variants[variantIndex].questions.splice(questionIndex, 1)
 }
 
@@ -369,6 +429,7 @@ onMounted(async () => {
   error.value = ''
   success.value = ''
   const { data } = await api.getTest(route.params.id)
+  hasAttempts.value = Number(data.attempt_count || 0) > 0
   const payload = data.source_json || buildFallbackPayload(data)
   setDraftFromPayload(payload)
 })

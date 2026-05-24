@@ -57,6 +57,53 @@ def _parse_and_create_test(data, test=None):
     return test
 
 
+def _update_existing_test_payload(data, test):
+    variants_data = data.get('variants', [])
+    variants = list(test.variants)
+    if len(variants_data) != len(variants):
+        raise ValueError('После начала прохождения нельзя добавлять или удалять варианты')
+
+    total_per_variant = None
+    for vdata in variants_data:
+        s = sum(q.get('max_points', 0) for q in vdata.get('questions', []))
+        if total_per_variant is None:
+            total_per_variant = s
+        elif s != total_per_variant:
+            raise ValueError('Сумма баллов должна быть одинакова во всех вариантах')
+
+    for variant, vdata in zip(variants, variants_data):
+        questions_data = vdata.get('questions', [])
+        questions = list(variant.questions)
+        if len(questions_data) != len(questions):
+            raise ValueError('После начала прохождения нельзя добавлять или удалять вопросы')
+
+        variant.title = vdata.get('title', variant.title)
+        for question, qdata in zip(questions, questions_data):
+            if qdata.get('type') not in VALID_QUESTION_TYPES:
+                raise ValueError(f'Неизвестный тип вопроса: {qdata.get("type")}')
+            if qdata.get('check_type') not in CHECK_TYPES:
+                raise ValueError(f'Неизвестный тип проверки: {qdata.get("check_type")}')
+
+            question.type = qdata['type']
+            question.title = qdata['title']
+            question.body = qdata.get('body')
+            question.max_points = qdata['max_points']
+            question.check_type = qdata['check_type']
+            question.check_config = qdata.get('check_config')
+            question.ui_config = qdata.get('ui_config')
+            question.allow_intermediate_check = qdata.get('allow_intermediate_check', False)
+
+    test.title = data['title']
+    test.description = data.get('description')
+    test.time_limit = data.get('time_limit')
+    test.source_json = json.dumps(data, ensure_ascii=False)
+
+    for attempt in test.attempts:
+        attempt.max_points = sum(q.max_points for q in attempt.variant.questions)
+
+    return test
+
+
 def _current_test_payload(test):
     return {
         'title': test.title,
@@ -94,6 +141,8 @@ def _test_to_dict(test, include_variants=False):
         'is_active': test.is_active,
         'created_by': test.created_by,
         'created_at': test.created_at.isoformat() if test.created_at else None,
+        'variant_count': len(test.variants),
+        'attempt_count': len(test.attempts),
     }
     if include_variants:
         source_json = None
@@ -167,11 +216,11 @@ def update_test(test_id):
         return jsonify({'error': 'JSON required'}), 400
 
     has_attempts = Attempt.query.filter_by(test_id=test.id).first() is not None
-    if has_attempts:
-        return jsonify({'error': 'Нельзя изменять варианты и вопросы после начала прохождения теста'}), 422
-
     try:
-        _parse_and_create_test(data, test=test)
+        if has_attempts:
+            _update_existing_test_payload(data, test)
+        else:
+            _parse_and_create_test(data, test=test)
         db.session.commit()
         return jsonify(_test_to_dict(test))
     except (ValueError, KeyError) as e:
@@ -222,6 +271,9 @@ def update_test_params(test_id):
 @teacher_required
 def delete_test(test_id):
     test = Test.query.get_or_404(test_id)
+    for attempt in list(test.attempts):
+        db.session.delete(attempt)
+    db.session.flush()
     db.session.delete(test)
     db.session.commit()
     return '', 204

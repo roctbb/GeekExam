@@ -7,6 +7,7 @@
         <button v-else class="btn btn-warning btn-sm" @click="deactivate">Остановить</button>
         <RouterLink :to="`/admin/tests/${test.id}/edit`" class="btn btn-outline-secondary btn-sm">Редактировать</RouterLink>
         <RouterLink :to="`/admin/tests/${test.id}/results`" class="btn btn-outline-primary btn-sm">Результаты</RouterLink>
+        <button class="btn btn-outline-danger btn-sm" :disabled="deleting" @click="removeTest">Удалить</button>
       </div>
     </div>
     <div class="card mb-4">
@@ -46,13 +47,30 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import api from '../../api'
 import MarkdownBody from '../../components/MarkdownBody.vue'
 const route = useRoute()
+const router = useRouter()
 const test = ref(null), newCode = ref('')
+const deleting = ref(false)
 onMounted(async () => { const { data } = await api.getTest(route.params.id); test.value = data; newCode.value = data.code || '' })
 async function activate() { await api.activateTest(test.value.id); test.value.is_active = true }
 async function deactivate() { await api.deactivateTest(test.value.id); test.value.is_active = false }
 async function saveCode() { const { data } = await api.setTestCode(test.value.id, newCode.value); test.value.code = data.code }
+async function removeTest() {
+  const attemptsText = test.value.attempt_count
+    ? ` Будут удалены все попытки: ${test.value.attempt_count}.`
+    : ''
+  if (!confirm(`Удалить тест «${test.value.title}»?${attemptsText} Это действие нельзя отменить.`)) return
+
+  deleting.value = true
+  try {
+    await api.deleteTest(test.value.id)
+    router.push('/admin/tests')
+  } catch (e) {
+    alert(e?.response?.data?.error || 'Не удалось удалить тест')
+    deleting.value = false
+  }
+}
 </script>
