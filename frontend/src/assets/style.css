@@ -210,6 +210,32 @@ textarea.ge-code-editor:focus { border-color: var(--ge-primary); box-shadow: 0 0
   padding: .65rem .75rem;
 }
 
+/* Multi input question */
+.ge-multi-input {
+  display: flex;
+  flex-direction: column;
+  gap: .8rem;
+}
+.ge-multi-input-row {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem .65rem;
+  max-width: 100%;
+}
+.ge-multi-input-label {
+  flex: 0 1 auto;
+  min-width: min(100%, 12rem);
+  overflow-wrap: anywhere;
+}
+.ge-multi-input-label code {
+  white-space: normal;
+}
+.ge-multi-input-control {
+  flex: 0 0 130px;
+  max-width: 100%;
+}
+
 /* Check result */
 .ge-check { display: flex; align-items: flex-start; gap: 8px; padding: .6rem .8rem; border-radius: 10px; margin-top: .5rem; font-size: .85rem; }
 .ge-check.success { background: rgba(16,185,129,.08); color: #059669; }
