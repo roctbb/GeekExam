@@ -247,6 +247,10 @@ textarea.ge-code-editor:focus { border-color: var(--ge-primary); box-shadow: 0 0
   text-align: left;
   white-space: normal;
 }
+.ge-preview-variant-select {
+  width: auto;
+  min-width: 180px;
+}
 
 /* Check result */
 .ge-check { display: flex; align-items: flex-start; gap: 8px; padding: .6rem .8rem; border-radius: 10px; margin-top: .5rem; font-size: .85rem; }

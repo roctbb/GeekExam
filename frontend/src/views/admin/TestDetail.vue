@@ -5,6 +5,7 @@
       <div class="d-flex gap-2">
         <button v-if="!test.is_active" class="btn btn-success btn-sm" :disabled="!test.code" @click="activate">Запустить</button>
         <button v-else class="btn btn-warning btn-sm" @click="deactivate">Остановить</button>
+        <RouterLink :to="`/admin/tests/${test.id}/preview`" class="btn btn-outline-primary btn-sm">Просмотр как ученик</RouterLink>
         <RouterLink :to="`/admin/tests/${test.id}/edit`" class="btn btn-outline-secondary btn-sm">Редактировать</RouterLink>
         <RouterLink :to="`/admin/tests/${test.id}/results`" class="btn btn-outline-primary btn-sm">Результаты</RouterLink>
         <button class="btn btn-outline-danger btn-sm" :disabled="deleting" @click="removeTest">Удалить</button>
