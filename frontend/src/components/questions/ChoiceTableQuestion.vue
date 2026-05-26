@@ -3,9 +3,9 @@
     <table class="table table-bordered">
       <thead>
         <tr>
-          <th>{{ itemHeader }}</th>
+          <th><span class="ge-markdown-inline" v-html="markdownInline(itemHeader)" /></th>
           <th v-for="option in options" :key="option.value" class="text-center" style="width:140px">
-            {{ option.label }}
+            <span class="ge-markdown-inline" v-html="markdownInline(option.label)" />
           </th>
         </tr>
       </thead>
@@ -16,7 +16,7 @@
               <span v-if="answers[i] === correct[i]">✅</span>
               <span v-else>❌</span>
             </span>
-            {{ item.label }}
+            <span class="ge-markdown-inline" v-html="markdownInline(item.label)" />
           </td>
           <td
             v-for="option in options"
@@ -43,6 +43,7 @@
 <script setup>
 import { computed } from 'vue'
 import CheckResult from '../CheckResult.vue'
+import { renderMarkdown } from '../../utils/markdown'
 
 const props = defineProps({ question: Object, modelValue: Object, readonly: Boolean, checkResult: Object })
 const emit = defineEmits(['update:modelValue'])
@@ -62,6 +63,10 @@ function setAnswer(i, value) {
   const arr = [...answers.value]
   arr[i] = value
   emit('update:modelValue', { answers: arr })
+}
+
+function markdownInline(source) {
+  return renderMarkdown(source, { inline: true })
 }
 
 function cellClass(i, value) {

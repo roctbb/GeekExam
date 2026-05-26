@@ -209,6 +209,13 @@ textarea.ge-code-editor:focus { border-color: var(--ge-primary); box-shadow: 0 0
   font-size: .78rem;
   padding: .65rem .75rem;
 }
+.ge-markdown-inline {
+  display: inline;
+  overflow-wrap: anywhere;
+}
+.ge-markdown-inline code {
+  white-space: normal;
+}
 
 /* Multi input question */
 .ge-multi-input {
@@ -234,6 +241,11 @@ textarea.ge-code-editor:focus { border-color: var(--ge-primary); box-shadow: 0 0
 .ge-multi-input-control {
   flex: 0 0 130px;
   max-width: 100%;
+}
+.ge-answer-badge {
+  max-width: 100%;
+  text-align: left;
+  white-space: normal;
 }
 
 /* Check result */

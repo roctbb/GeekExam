@@ -27,17 +27,22 @@
           <pre v-if="q.type === 'code_input'" class="ge-code mt-1">{{ answer(q.id)?.value?.code || '—' }}</pre>
           <div v-else-if="q.type === 'true_false_table'" class="mt-1">
             <span v-if="!answer(q.id)?.value?.answers?.length" class="text-muted">—</span>
-            <span v-for="(v, idx) in (answer(q.id)?.value?.answers || [])" :key="idx" class="me-2 badge bg-light text-dark border">
-              {{ q.ui_config?.statements?.[idx]?.slice(0,40) || idx+1 }}: <strong>{{ v === true ? 'В' : v === false ? 'Н' : '—' }}</strong>
+            <span v-for="(v, idx) in (answer(q.id)?.value?.answers || [])" :key="idx" class="me-2 badge bg-light text-dark border ge-answer-badge">
+              <span class="ge-markdown-inline" v-html="markdownInline(q.ui_config?.statements?.[idx] || idx + 1)" />:
+              <strong>{{ v === true ? 'В' : v === false ? 'Н' : '—' }}</strong>
             </span>
           </div>
           <div v-else-if="q.type === 'multi_input'" class="mt-1">
-            <span v-for="field in (q.ui_config?.fields || [])" :key="field.name" class="me-3">{{ field.label }} <strong>{{ answer(q.id)?.value?.[field.name] ?? '—' }}</strong></span>
+            <span v-for="field in (q.ui_config?.fields || [])" :key="field.name" class="me-3">
+              <span class="ge-markdown-inline" v-html="markdownInline(field.label || field.name)" />
+              <strong>{{ answer(q.id)?.value?.[field.name] ?? '—' }}</strong>
+            </span>
           </div>
           <div v-else-if="q.type === 'choice_table'" class="mt-1">
             <span v-if="!answer(q.id)?.value?.answers?.length" class="text-muted">—</span>
-            <span v-for="(v, idx) in (answer(q.id)?.value?.answers || [])" :key="idx" class="me-2 badge bg-light text-dark border">
-              {{ q.ui_config?.items?.[idx]?.label || idx + 1 }}: <strong>{{ optionLabel(q, v) }}</strong>
+            <span v-for="(v, idx) in (answer(q.id)?.value?.answers || [])" :key="idx" class="me-2 badge bg-light text-dark border ge-answer-badge">
+              <span class="ge-markdown-inline" v-html="markdownInline(q.ui_config?.items?.[idx]?.label || idx + 1)" />:
+              <strong><span class="ge-markdown-inline" v-html="markdownInline(optionLabel(q, v))" /></strong>
             </span>
           </div>
           <span v-else class="ms-2">{{ answer(q.id)?.value?.text || '—' }}</span>
@@ -86,6 +91,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { io } from 'socket.io-client'
 import api from '../../api'
 import MarkdownBody from '../../components/MarkdownBody.vue'
+import { renderMarkdown } from '../../utils/markdown'
 
 const route = useRoute(), router = useRouter()
 const attempt = ref(null), grades = reactive({})
@@ -94,6 +100,7 @@ let socket = null
 
 function answer(qid) { return attempt.value?.answers?.find(a => a.question_id === qid) }
 function optionLabel(q, value) { return q.ui_config?.options?.find(o => o.value === value)?.label || value || '—' }
+function markdownInline(source) { return renderMarkdown(source, { inline: true }) }
 function isAutoCheck(q) { return q.check_type !== 'manual' }
 function isAsyncCheck(q) { return q.check_type === 'ai' || q.check_type === 'docker' }
 

@@ -31,7 +31,8 @@
           <div v-else-if="q.type === 'multi_input'" class="mt-1">
             <span v-if="!answer(q.id)?.value" class="text-muted">—</span>
             <span v-for="field in (q.ui_config?.fields || [])" :key="field.name" class="me-3">
-              {{ field.label }} <strong>{{ answer(q.id)?.value?.[field.name] ?? '—' }}</strong>
+              <span class="ge-markdown-inline" v-html="markdownInline(field.label || field.name)" />
+              <strong>{{ answer(q.id)?.value?.[field.name] ?? '—' }}</strong>
             </span>
           </div>
           <span v-else>{{ answer(q.id)?.value?.text || '—' }}</span>
@@ -41,7 +42,10 @@
             ✅ Правильный ответ: <strong>{{ q.check_config.answer }}</strong>
           </div>
           <div v-else-if="q.check_type === 'exact' && q.check_config.answers" class="ge-check success">
-            ✅ <span v-for="field in (q.ui_config?.fields || [])" :key="field.name" class="me-2">{{ field.label }}: <strong>{{ q.check_config.answers[field.name] }}</strong></span>
+            ✅ <span v-for="field in (q.ui_config?.fields || [])" :key="field.name" class="me-2">
+              <span class="ge-markdown-inline" v-html="markdownInline(field.label || field.name)" />:
+              <strong>{{ q.check_config.answers[field.name] }}</strong>
+            </span>
           </div>
         </template>
         <div v-if="answer(q.id)?.check_comment" class="ge-check" :class="answer(q.id).points > 0 ? 'success' : 'error'">
@@ -61,12 +65,14 @@ import api from '../api'
 import MarkdownBody from '../components/MarkdownBody.vue'
 import TrueFalseTableQuestion from '../components/questions/TrueFalseTableQuestion.vue'
 import ChoiceTableQuestion from '../components/questions/ChoiceTableQuestion.vue'
+import { renderMarkdown } from '../utils/markdown'
 
 const route = useRoute()
 const attempt = ref(null)
 let socket = null
 
 function answer(qid) { return attempt.value?.answers?.find(a => a.question_id === qid) }
+function markdownInline(source) { return renderMarkdown(source, { inline: true }) }
 
 onMounted(async () => {
   const { data } = await api.myAttemptResults(route.params.id)
