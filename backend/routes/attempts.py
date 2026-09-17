@@ -1,4 +1,5 @@
 import random
+import re
 from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify, request
@@ -6,8 +7,116 @@ from sqlalchemy.exc import IntegrityError
 
 from auth import api_login_required, teacher_required, current_user_id, current_role
 from models import db, Test, Attempt, Answer, Variant
+from checkers.check_types.exact import normalize_text
 
 attempts_bp = Blueprint('attempts', __name__)
+
+
+def _topic_from_question(question):
+    ui_config = question.ui_config or {}
+    return ui_config.get('topic') or question.title or 'Без темы'
+
+
+def _topic_from_field(question, field):
+    ui_config = question.ui_config or {}
+    field_topics = ui_config.get('field_topics') or {}
+    name = field.get('name')
+    return field.get('topic') or field_topics.get(name) or _topic_from_question(question)
+
+
+def _topic_from_index(question, key, index):
+    ui_config = question.ui_config or {}
+    topics = ui_config.get(key) or []
+    if isinstance(topics, list) and index < len(topics):
+        return topics[index] or _topic_from_question(question)
+    if isinstance(topics, dict):
+        return topics.get(str(index)) or topics.get(index) or _topic_from_question(question)
+    return _topic_from_question(question)
+
+
+def _topic_from_choice_item(question, index):
+    ui_config = question.ui_config or {}
+    items = ui_config.get('items') or []
+    if index < len(items) and isinstance(items[index], dict):
+        return items[index].get('topic') or _topic_from_index(question, 'item_topics', index)
+    return _topic_from_index(question, 'item_topics', index)
+
+
+def _add_topic_stat(stats, topic, points, max_points, correct=None):
+    topic = topic or 'Без темы'
+    row = stats.setdefault(topic, {'topic': topic, 'points': 0, 'max_points': 0, 'correct': 0, 'total': 0})
+    row['points'] += points
+    row['max_points'] += max_points
+    if correct is not None:
+        row['correct'] += 1 if correct else 0
+        row['total'] += 1
+
+
+def _topic_summary(attempt):
+    answers_by_question = {answer.question_id: answer for answer in attempt.answers}
+    stats = {}
+
+    for question in attempt.variant.questions:
+        answer = answers_by_question.get(question.id)
+        if not answer or answer.check_state != 'checked' or answer.points is None:
+            continue
+
+        value = answer.value or {}
+        check_config = question.check_config or {}
+
+        if question.check_type == 'exact' and question.type == 'multi_input' and isinstance(check_config.get('answers'), dict):
+            correct = check_config['answers']
+            fields = (question.ui_config or {}).get('fields') or []
+            fields_by_name = {field.get('name'): field for field in fields if isinstance(field, dict)}
+            item_max = question.max_points / max(len(correct), 1)
+            for key, expected in correct.items():
+                field = fields_by_name.get(key, {'name': key})
+                got = normalize_text(value.get(key, ''), check_config)
+                exp = normalize_text(expected, check_config)
+                is_correct = got == exp
+                _add_topic_stat(stats, _topic_from_field(question, field), item_max if is_correct else 0, item_max, is_correct)
+            continue
+
+        if question.check_type == 'exact' and question.type == 'true_false_table' and isinstance(check_config.get('correct'), list):
+            correct = check_config['correct']
+            given = value.get('answers') or []
+            item_max = question.max_points / max(len(correct), 1)
+            for index, expected in enumerate(correct):
+                is_correct = index < len(given) and given[index] == expected
+                _add_topic_stat(stats, _topic_from_index(question, 'statement_topics', index), item_max if is_correct else 0, item_max, is_correct)
+            continue
+
+        if question.check_type == 'exact' and question.type == 'choice_table' and isinstance(check_config.get('correct'), list):
+            correct = check_config['correct']
+            given = value.get('answers') or []
+            item_max = question.max_points / max(len(correct), 1)
+            for index, expected in enumerate(correct):
+                is_correct = index < len(given) and given[index] == expected
+                _add_topic_stat(stats, _topic_from_choice_item(question, index), item_max if is_correct else 0, item_max, is_correct)
+            continue
+
+        # Use the recorded grade for single answers, including teacher overrides.
+        # Re-comparing with the reference here would undo manual grading in the summary.
+        points = answer.points or 0
+        _add_topic_stat(stats, _topic_from_question(question), points, question.max_points, points >= question.max_points)
+
+    summary = []
+    for row in stats.values():
+        percent = (row['points'] / row['max_points'] * 100) if row['max_points'] else 0
+        summary.append({
+            'topic': row['topic'],
+            'points': round(row['points'], 2),
+            'max_points': round(row['max_points'], 2),
+            'percent': round(percent),
+            'correct': row['correct'],
+            'total': row['total'],
+        })
+    # Compare numbers within topic names numerically: «Тема 2» before «Тема 10».
+    summary.sort(key=lambda item: [
+        int(part) if index % 2 else part.casefold()
+        for index, part in enumerate(re.split(r'(\d+)', str(item['topic'])))
+    ])
+    return summary
 
 
 def _attempt_detail(attempt, include_check_config=False):
@@ -61,6 +170,7 @@ def _attempt_detail(attempt, include_check_config=False):
             }
             for a in attempt.answers
         ],
+        'topic_summary': _topic_summary(attempt),
     }
 
 

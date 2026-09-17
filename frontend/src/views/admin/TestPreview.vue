@@ -23,7 +23,7 @@
         v-for="(q, i) in currentVariant.questions"
         :key="q.id"
         class="ge-tab"
-        :class="[activeTab === i ? 'active' : '', answerHasValue(answers[q.id]) ? 'answered' : '']"
+        :class="[activeTab === i ? 'active' : '', isQuestionAnswered(q, answers[q.id]) ? 'answered' : '']"
         @click="activeTab = i"
       >
         {{ i + 1 }}
@@ -60,6 +60,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import api from '../../api'
+import { isQuestionAnswered } from '../../utils/answers'
 import MarkdownBody from '../../components/MarkdownBody.vue'
 import TextInputQuestion from '../../components/questions/TextInputQuestion.vue'
 import CodeInputQuestion from '../../components/questions/CodeInputQuestion.vue'
@@ -88,7 +89,7 @@ const currentQuestion = computed(() => currentVariant.value?.questions?.[activeT
 const progressPct = computed(() => {
   const questions = currentVariant.value?.questions || []
   if (!questions.length) return 0
-  const answered = questions.filter(q => answerHasValue(answers[q.id])).length
+  const answered = questions.filter(q => isQuestionAnswered(q, answers[q.id])).length
   return Math.round((answered / questions.length) * 100)
 })
 
@@ -112,13 +113,6 @@ function onPreviewCheck() {
   alert('Это режим просмотра. Проверка ответов здесь не запускается.')
 }
 
-function answerHasValue(value) {
-  if (value == null) return false
-  if (typeof value === 'string') return value.trim() !== ''
-  if (Array.isArray(value)) return value.length > 0 && value.every(v => v !== null && v !== undefined)
-  if (typeof value === 'object') return Object.values(value).some(answerHasValue)
-  return Boolean(value)
-}
 
 function formatTime(s) {
   return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`

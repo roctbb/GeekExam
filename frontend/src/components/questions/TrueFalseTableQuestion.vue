@@ -11,7 +11,7 @@
       <tbody>
         <tr v-for="(stmt, i) in statements" :key="i">
           <td>
-            <span v-if="readonly && correct">
+            <span v-if="hasCorrectAnswer(i)">
               <span v-if="answers[i] === correct[i]">✅</span>
               <span v-else>❌</span>
             </span>
@@ -25,6 +25,8 @@
           >
             <input type="radio" :name="`q${question.id}_${i}`"
               :checked="answers[i] === true" :disabled="readonly" />
+            <div v-if="hasCorrectAnswer(i) && correct[i] === true" class="small fw-semibold mt-1">✓ Правильный ответ</div>
+            <div v-if="readonly && answers[i] === true" class="small mt-1">Ваш ответ</div>
           </td>
           <td
             class="text-center"
@@ -34,16 +36,18 @@
           >
             <input type="radio" :name="`q${question.id}_${i}`"
               :checked="answers[i] === false" :disabled="readonly" />
+            <div v-if="hasCorrectAnswer(i) && correct[i] === false" class="small fw-semibold mt-1">✓ Правильный ответ</div>
+            <div v-if="readonly && answers[i] === false" class="small mt-1">Ваш ответ</div>
           </td>
         </tr>
       </tbody>
     </table>
-    <CheckResult :result="checkResult" />
+    <CheckResult :result="checkResult" :max-points="question.max_points" />
   </div>
 </template>
 
 <script setup>
-import { computed, watch } from 'vue'
+import { computed } from 'vue'
 import CheckResult from '../CheckResult.vue'
 import { renderMarkdown } from '../../utils/markdown'
 
@@ -53,22 +57,7 @@ const emit = defineEmits(['update:modelValue'])
 const statements = computed(() => props.question.ui_config?.statements || [])
 const correct = computed(() => props.question.check_config?.correct || null)
 
-// Default all to false
-const answers = computed(() => {
-  const saved = props.modelValue?.answers
-  if (saved && saved.length === statements.value.length) return saved
-  return statements.value.map(() => false)
-})
-
-// Emit defaults on mount only if truly no value has been saved yet.
-// Do NOT emit if modelValue exists at all — emitting on re-mount (e.g. tab
-// switch) would trigger onAnswerUpdate in TakeTest and wipe an intermediate
-// check result that the student already received.
-watch(statements, (stmts) => {
-  if (props.modelValue == null && stmts.length && !props.readonly) {
-    emit('update:modelValue', { answers: stmts.map(() => false) })
-  }
-}, { immediate: true })
+const answers = computed(() => statements.value.map((_, i) => props.modelValue?.answers?.[i] ?? null))
 
 function setAnswer(i, val) {
   const arr = [...answers.value]
@@ -80,13 +69,13 @@ function markdownInline(source) {
   return renderMarkdown(source, { inline: true })
 }
 
+function hasCorrectAnswer(i) {
+  return props.readonly && Array.isArray(correct.value) && typeof correct.value[i] === 'boolean'
+}
+
 function cellClass(i, val) {
+  if (hasCorrectAnswer(i) && correct.value[i] === val) return 'table-success'
   if (answers.value[i] !== val) return ''
-  // In readonly mode: show green if correct, red if wrong
-  if (props.readonly && correct.value) {
-    return correct.value[i] === val ? 'table-success' : 'table-danger'
-  }
-  // During answering: highlight selected
-  return val === true ? 'table-success' : 'table-danger'
+  return hasCorrectAnswer(i) ? 'table-danger' : 'table-primary'
 }
 </script>

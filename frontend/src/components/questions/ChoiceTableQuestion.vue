@@ -12,7 +12,7 @@
       <tbody>
         <tr v-for="(item, i) in items" :key="item.value ?? i">
           <td>
-            <span v-if="readonly && correct">
+            <span v-if="hasCorrectAnswer(i)">
               <span v-if="answers[i] === correct[i]">✅</span>
               <span v-else>❌</span>
             </span>
@@ -32,11 +32,15 @@
               :checked="answers[i] === option.value"
               :disabled="readonly"
             />
+            <div v-if="hasCorrectAnswer(i) && correct[i] === option.value" class="small fw-semibold mt-1">
+              ✓ Правильный ответ
+            </div>
+            <div v-if="readonly && answers[i] === option.value" class="small mt-1">Ваш ответ</div>
           </td>
         </tr>
       </tbody>
     </table>
-    <CheckResult :result="checkResult" />
+    <CheckResult :result="checkResult" :max-points="question.max_points" />
   </div>
 </template>
 
@@ -70,10 +74,14 @@ function markdownInline(source) {
 }
 
 function cellClass(i, value) {
+  if (hasCorrectAnswer(i) && correct.value[i] === value) return 'table-success'
   if (answers.value[i] !== value) return ''
-  if (props.readonly && correct.value) {
-    return correct.value[i] === value ? 'table-success' : 'table-danger'
-  }
+  if (hasCorrectAnswer(i)) return 'table-danger'
   return 'table-primary'
+}
+
+function hasCorrectAnswer(i) {
+  return props.readonly && Array.isArray(correct.value) && i < correct.value.length
+    && options.value.some(option => option.value === correct.value[i])
 }
 </script>

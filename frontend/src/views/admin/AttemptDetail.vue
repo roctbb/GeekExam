@@ -11,9 +11,32 @@
         <button class="btn btn-sm btn-outline-danger" @click="del">Удалить</button>
       </div>
     </div>
+
+    <div v-if="attempt.topic_summary?.length" class="card mb-3">
+      <div class="card-header">Темы</div>
+      <div class="card-body p-0">
+        <table class="table mb-0">
+          <thead>
+            <tr>
+              <th>Тема</th>
+              <th class="text-end">Баллы</th>
+              <th class="text-end">Верно</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in attempt.topic_summary" :key="row.topic">
+              <td>{{ row.topic }}</td>
+              <td class="text-end">{{ formatScore(row.points) }} / {{ formatScore(row.max_points) }}</td>
+              <td class="text-end">{{ row.percent }}%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <div v-for="(q, i) in attempt.questions" :key="q.id" class="card mb-3">
       <div class="card-header d-flex justify-content-between align-items-center">
-        <span>{{ i + 1 }}. {{ q.title }}</span>
+        <span>{{ numberedQuestionTitle(q.title, i) }}</span>
         <span class="text-muted small">{{ q.check_type }} · {{ q.max_points }} б.</span>
       </div>
       <div class="card-body">
@@ -45,7 +68,7 @@
               <strong><span class="ge-markdown-inline" v-html="markdownInline(optionLabel(q, v))" /></strong>
             </span>
           </div>
-          <span v-else class="ms-2">{{ answer(q.id)?.value?.text || '—' }}</span>
+          <div v-else class="ge-answer-text mt-1">{{ answer(q.id)?.value?.text || '—' }}</div>
         </div>
 
         <!-- Auto-check result (ai/docker/exact/checker) -->
@@ -55,8 +78,8 @@
           </div>
           <div v-else-if="answer(q.id)?.check_state === 'checked' || answer(q.id)?.check_state === 'error'" class="mb-2">
             <div class="d-flex align-items-center gap-2 mb-1">
-              <span class="badge" :class="answer(q.id)?.check_state === 'checked' ? (answer(q.id)?.points > 0 ? 'bg-success' : 'bg-danger') : 'bg-warning text-dark'">
-                {{ answer(q.id)?.check_state === 'checked' ? answer(q.id)?.points + ' б.' : 'Ошибка' }}
+              <span class="badge" :class="answer(q.id)?.check_state === 'checked' ? scoreStatus(answer(q.id)?.points, q.max_points).badge : 'bg-warning text-dark'">
+                {{ answer(q.id)?.check_state === 'checked' ? scoreStatus(answer(q.id)?.points, q.max_points).label + ' · ' + answer(q.id)?.points + ' / ' + q.max_points + ' б.' : 'Ошибка' }}
               </span>
               <button v-if="isAsyncCheck(q)" class="btn btn-sm btn-outline-secondary" @click="recheck(q.id, answer(q.id).id)">
                 Перепроверить нейронкой
@@ -74,14 +97,16 @@
 
         <!-- Grade form (manual questions, or auto-checked for teacher override) -->
         <div v-if="q.check_type === 'manual' || answer(q.id)?.check_state === 'checked'" class="row g-2 align-items-center">
-          <div class="col-auto"><input type="number" class="form-control form-control-sm" style="width:80px" :min="0" :max="q.max_points" v-model.number="grades[q.id].points" /></div>
-          <div class="col"><input type="text" class="form-control form-control-sm" placeholder="Комментарий" v-model="grades[q.id].comment" /></div>
-          <div class="col-auto"><button class="btn btn-sm btn-primary" @click="grade(q.id, answer(q.id).id)">Сохранить</button></div>
+          <div class="col-auto"><input :disabled="gradeFeedback[q.id]?.state === 'saving'" @input="delete gradeFeedback[q.id]" aria-label="Баллы" type="number" class="form-control form-control-sm" style="width:80px" :min="0" :max="q.max_points" v-model.number="grades[q.id].points" /></div>
+          <div class="col-12 col-md"><AutoTextarea class="form-control form-control-sm" placeholder="Комментарий" aria-label="Комментарий преподавателя" v-model="grades[q.id].comment" :disabled="gradeFeedback[q.id]?.state === 'saving'" @update:model-value="delete gradeFeedback[q.id]" /></div>
+          <div class="col-auto"><button class="btn btn-sm btn-primary" :disabled="gradeFeedback[q.id]?.state === 'saving'" @click="grade(q.id, answer(q.id).id)">{{ gradeFeedback[q.id]?.state === 'saving' ? 'Сохраняется…' : 'Сохранить' }}</button></div>
+          <div v-if="gradeFeedback[q.id]" class="col-12 small" role="status" :class="gradeFeedback[q.id].state === 'error' ? 'text-danger' : 'text-success'">{{ gradeFeedback[q.id].message }}</div>
         </div>
 
       </div>
     </div>
   </div>
+  <div v-else-if="loadError" class="alert alert-danger" role="alert">{{ loadError }} <button class="btn btn-outline-danger btn-sm" @click="loadAttempt">Повторить</button></div>
   <div v-else class="text-center py-5"><div class="spinner-border" /></div>
 </template>
 
@@ -90,12 +115,16 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { io } from 'socket.io-client'
 import api from '../../api'
+import { numberedQuestionTitle, scoreStatus } from '../../utils/answers'
+import AutoTextarea from '../../components/AutoTextarea.vue'
 import MarkdownBody from '../../components/MarkdownBody.vue'
 import { renderMarkdown } from '../../utils/markdown'
 
 const route = useRoute(), router = useRouter()
 const attempt = ref(null), grades = reactive({})
+const loadError = ref('')
 const recheckingAll = ref(false)
+const gradeFeedback = reactive({})
 let socket = null
 
 function answer(qid) { return attempt.value?.answers?.find(a => a.question_id === qid) }
@@ -103,6 +132,7 @@ function optionLabel(q, value) { return q.ui_config?.options?.find(o => o.value 
 function markdownInline(source) { return renderMarkdown(source, { inline: true }) }
 function isAutoCheck(q) { return q.check_type !== 'manual' }
 function isAsyncCheck(q) { return q.check_type === 'ai' || q.check_type === 'docker' }
+function formatScore(value) { return Number.isInteger(value) ? value : Number(value).toFixed(2) }
 
 const canRecheckAttempt = computed(() => {
   if (!attempt.value?.finished_at) return false
@@ -120,12 +150,25 @@ async function del() {
 }
 
 async function grade(qid, aid) {
-  await api.gradeAnswer(aid, grades[qid].points, grades[qid].comment)
-  const a = answer(qid)
-  if (a) { a.points = grades[qid].points; a.check_comment = grades[qid].comment; a.check_state = 'checked' }
-  if (attempt.value.answers.every(a => a.check_state === 'checked')) {
-    attempt.value.total_points = attempt.value.answers.reduce((s, a) => s + (a.points || 0), 0)
-    attempt.value.is_checked = true
+  if (gradeFeedback[qid]?.state === 'saving') return
+  const draft = { ...grades[qid] }
+  const maxPoints = attempt.value.questions.find(q => q.id === qid).max_points
+  if (typeof draft.points !== 'number' || !Number.isFinite(draft.points) || draft.points < 0 || draft.points > maxPoints) {
+    gradeFeedback[qid] = { state: 'error', message: `Укажите баллы от 0 до ${maxPoints}.` }
+    return
+  }
+  gradeFeedback[qid] = { state: 'saving', message: 'Сохраняется…' }
+  try {
+    await api.gradeAnswer(aid, draft.points, draft.comment)
+    const a = answer(qid)
+    if (a) { a.points = draft.points; a.check_comment = draft.comment; a.check_state = 'checked' }
+    if (attempt.value.answers.every(a => a.check_state === 'checked')) {
+      attempt.value.total_points = attempt.value.answers.reduce((s, a) => s + (a.points || 0), 0)
+      attempt.value.is_checked = true
+    }
+    gradeFeedback[qid] = { state: 'saved', message: 'Оценка и комментарий сохранены' }
+  } catch (e) {
+    gradeFeedback[qid] = { state: 'error', message: e?.response?.data?.error || 'Не удалось сохранить оценку. Повторите попытку.' }
   }
 }
 
@@ -177,8 +220,13 @@ function syncGrades(data) {
   }
 }
 
-onMounted(async () => {
-  const { data } = await api.getAttempt(route.params.id)
+async function loadAttempt() {
+  loadError.value = ''
+  let data
+  try { ({ data } = await api.getAttempt(route.params.id)) } catch {
+    loadError.value = 'Не удалось загрузить работу.'
+    return
+  }
   attempt.value = data
   syncGrades(data)
 
@@ -188,11 +236,13 @@ onMounted(async () => {
   socket.on('answer_checked', ({ question_id, points, check_state, check_comment }) => {
     const a = answer(question_id)
     if (!a) return
+    const draft = grades[question_id]
+    const dirty = draft && (draft.points !== (a.points ?? 0) || draft.comment !== (a.check_comment ?? ''))
     a.points = points
     a.check_state = check_state
     a.check_comment = check_comment
     // Sync grade form fields with new auto-check result.
-    if (grades[question_id]) {
+    if (grades[question_id] && !dirty) {
       grades[question_id].points = points ?? grades[question_id].points
       grades[question_id].comment = check_comment ?? grades[question_id].comment
     }
@@ -202,7 +252,8 @@ onMounted(async () => {
       attempt.value.is_checked = true
     }
   })
-})
+}
+onMounted(loadAttempt)
 
 onUnmounted(() => { socket?.disconnect() })
 </script>

@@ -3,13 +3,16 @@
     <div class="ge-page-header">
       <h4>Мои результаты</h4>
     </div>
+    <div v-if="error" class="alert alert-danger" role="alert">
+      {{ error }} <button class="btn btn-sm btn-outline-danger" :disabled="refreshing" @click="refresh">Повторить</button>
+    </div>
     <div v-if="loading" class="text-center py-4"><div class="spinner-border" /></div>
-    <div v-else-if="attempts.length === 0" class="text-center py-5">
+    <div v-else-if="!error && attempts.length === 0" class="text-center py-5">
       <div style="font-size:2.5rem;margin-bottom:.5rem">📝</div>
       <p class="text-muted">Вы ещё не проходили тестов</p>
       <RouterLink to="/join" class="btn btn-primary">Войти в тест</RouterLink>
     </div>
-    <div v-else class="table-responsive">
+    <div v-else-if="attempts.length" class="table-responsive">
       <table class="table table-hover align-middle">
         <thead><tr><th>Тест</th><th>Вариант</th><th>Дата</th><th>Результат</th><th></th></tr></thead>
         <tbody>
@@ -34,16 +37,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
 import api from '../api'
+import { useResultList } from '../composables/useResultList'
 
-const attempts = ref([])
-const loading = ref(true)
+const { attempts, loading, refreshing, error, refresh } = useResultList(api.myAttempts)
 const fmt = (d) => d ? new Date(d).toLocaleString('ru') : ''
 
-onMounted(async () => {
-  const { data } = await api.myAttempts()
-  attempts.value = data
-  loading.value = false
-})
 </script>

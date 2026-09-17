@@ -4,9 +4,12 @@
       <h4>Результаты</h4>
       <RouterLink :to="`/admin/tests/${$route.params.id}`" class="btn btn-outline-secondary btn-sm">← Назад</RouterLink>
     </div>
+    <div v-if="error" class="alert alert-danger" role="alert">
+      {{ error }} <button class="btn btn-sm btn-outline-danger" :disabled="refreshing" @click="refresh">Повторить</button>
+    </div>
     <div v-if="loading" class="text-center py-4"><div class="spinner-border" /></div>
-    <div v-else-if="attempts.length === 0" class="text-center py-5 text-muted">Пока никто не проходил этот тест</div>
-    <div v-else>
+    <div v-else-if="!error && attempts.length === 0" class="text-center py-5 text-muted">Пока никто не проходил этот тест</div>
+    <div v-else-if="attempts.length">
       <div class="d-flex justify-content-end mb-2 gap-2">
         <select v-model="sortBy" class="form-select form-select-sm" style="width:auto">
           <option value="started_at">Сортировка: по времени</option>
@@ -47,11 +50,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import api from '../../api'
+import { useResultList } from '../../composables/useResultList'
 const route = useRoute()
-const attempts = ref([]), loading = ref(true)
+const { attempts, loading, refreshing, error, refresh } = useResultList(() => api.getTestAttempts(route.params.id))
 const sortBy = ref('started_at')
 const sortDir = ref('desc')
 const recheckingIds = ref(new Set())
@@ -75,8 +79,9 @@ async function recheck(attempt) {
   setRechecking(attempt.id, true)
   try {
     await api.recheckAttempt(attempt.id)
-    attempt.is_checked = false
-    attempt.total_points = null
+    const current = attempts.value.find(a => a.id === attempt.id)
+    if (current) { current.is_checked = false; current.total_points = null }
+    await refresh()
   } catch (e) {
     alert(e?.response?.data?.error || 'Не удалось запустить перепроверку работы')
   } finally {
@@ -95,6 +100,4 @@ const sortedAttempts = computed(() => {
     return dir * (aTs - bTs)
   })
 })
-
-onMounted(async () => { const { data } = await api.getTestAttempts(route.params.id); attempts.value = data; loading.value = false })
 </script>

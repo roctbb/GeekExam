@@ -10,7 +10,7 @@
         @input="update(field.name, $event.target.value)"
       />
     </div>
-    <CheckResult :result="checkResult" />
+    <CheckResult :result="checkResult" :max-points="question.max_points" />
   </div>
 </template>
 

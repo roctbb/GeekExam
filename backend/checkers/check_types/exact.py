@@ -1,3 +1,20 @@
+import re
+import unicodedata
+
+
+def normalize_text(value, check_config):
+    text = str(value)
+    # Remove invisible formatting controls such as U+202C copied from RTL/LTR text.
+    text = ''.join(ch for ch in text if unicodedata.category(ch) != 'Cf')
+    if check_config.get('trim', True):
+        text = text.strip()
+    if check_config.get('normalize_whitespace', False):
+        text = re.sub(r'\s+', ' ', text)
+    if not check_config.get('case_sensitive', False):
+        text = text.casefold()
+    return text
+
+
 class ExactChecker:
     def check(self, answer_value, check_config, max_points):
         """
@@ -13,10 +30,8 @@ class ExactChecker:
             given = answer_value if isinstance(answer_value, dict) else {}
             right = 0
             for key, expected in correct.items():
-                got = str(given.get(key, '')).strip() if check_config.get('trim', True) else str(given.get(key, ''))
-                exp = str(expected).strip() if check_config.get('trim', True) else str(expected)
-                if not check_config.get('case_sensitive', False):
-                    got, exp = got.lower(), exp.lower()
+                got = normalize_text(given.get(key, ''), check_config)
+                exp = normalize_text(expected, check_config)
                 if got == exp:
                     right += 1
             if check_config.get('partial_scoring', True):
@@ -37,21 +52,8 @@ class ExactChecker:
                 return (max_points if right == len(correct) else 0), f'{right} из {len(correct)} верно'
 
         # text_input
-        expected = str(check_config.get('answer', ''))
-        given = str(answer_value.get('text', ''))
-
-        if check_config.get('trim', True):
-            expected = expected.strip()
-            given = given.strip()
-
-        if check_config.get('normalize_whitespace', False):
-            import re
-            expected = re.sub(r'\s+', ' ', expected)
-            given = re.sub(r'\s+', ' ', given)
-
-        if not check_config.get('case_sensitive', False):
-            expected = expected.lower()
-            given = given.lower()
+        expected = normalize_text(check_config.get('answer', ''), check_config)
+        given = normalize_text(answer_value.get('text', ''), check_config)
 
         if given == expected:
             return max_points, 'Верно'

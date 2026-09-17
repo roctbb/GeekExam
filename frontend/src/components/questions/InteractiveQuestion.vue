@@ -11,7 +11,7 @@
     <div v-else class="alert alert-warning">
       Интерактивный компонент "{{ question.ui_config?.component }}" не найден.
     </div>
-    <CheckResult :result="checkResult" />
+    <CheckResult :result="checkResult" :max-points="question.max_points" />
   </div>
 </template>
 
