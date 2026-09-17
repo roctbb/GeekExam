@@ -19,6 +19,7 @@ class DockerChecker:
         config = {**check_config}
         if paste_check_type == 'gpt':
             config.setdefault('max_points', max_points)
+            config.setdefault('assessment_mode', 'rubric')
         payload = {
             'callback_url': f'{CALLBACK_BASE_URL}/api/callback/check',
             'callback_id': str(answer_id),
