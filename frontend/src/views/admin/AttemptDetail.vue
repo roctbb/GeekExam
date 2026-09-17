@@ -71,6 +71,8 @@
           <div v-else class="ge-answer-text mt-1">{{ answer(q.id)?.value?.text || '—' }}</div>
         </div>
 
+        <ExpectedAnswer :question="q" />
+
         <!-- Auto-check result (ai/docker/exact/checker) -->
         <div v-if="isAutoCheck(q)" class="mb-3">
           <div v-if="answer(q.id)?.check_state === 'checking'" class="text-muted small">
@@ -117,6 +119,7 @@ import { io } from 'socket.io-client'
 import api from '../../api'
 import { numberedQuestionTitle, scoreStatus } from '../../utils/answers'
 import AutoTextarea from '../../components/AutoTextarea.vue'
+import ExpectedAnswer from '../../components/ExpectedAnswer.vue'
 import MarkdownBody from '../../components/MarkdownBody.vue'
 import { renderMarkdown } from '../../utils/markdown'
 
@@ -128,7 +131,7 @@ const gradeFeedback = reactive({})
 let socket = null
 
 function answer(qid) { return attempt.value?.answers?.find(a => a.question_id === qid) }
-function optionLabel(q, value) { return q.ui_config?.options?.find(o => o.value === value)?.label || value || '—' }
+function optionLabel(q, value) { return String(q.ui_config?.options?.find(o => o.value === value)?.label ?? value ?? '—') }
 function markdownInline(source) { return renderMarkdown(source, { inline: true }) }
 function isAutoCheck(q) { return q.check_type !== 'manual' }
 function isAsyncCheck(q) { return q.check_type === 'ai' || q.check_type === 'docker' }

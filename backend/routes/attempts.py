@@ -235,7 +235,7 @@ def get_attempt(attempt_id):
     role = current_role()
     if role not in ('teacher', 'admin') and attempt.user_id != user_id:
         return jsonify({'error': 'Forbidden'}), 403
-    return jsonify(_attempt_detail(attempt))
+    return jsonify(_attempt_detail(attempt, include_check_config=role in ('teacher', 'admin')))
 
 
 @attempts_bp.route('/api/attempts/<int:attempt_id>/finish', methods=['POST'])
