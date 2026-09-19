@@ -10,7 +10,7 @@ CHECK_TYPES = {
     'manual': None,       # No auto-check
 }
 
-VALID_QUESTION_TYPES = {'text_input', 'code_input', 'true_false_table', 'interactive', 'multi_input', 'choice_table'}
+VALID_QUESTION_TYPES = {'text_input', 'code_input', 'true_false_table', 'interactive', 'multi_input', 'choice_table', 'matrix_input'}
 
 
 def get_checker(check_type):

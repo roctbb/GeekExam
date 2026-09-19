@@ -21,7 +21,7 @@ def _strip_nul_chars(value):
 @answers_bp.route('/api/answers/<int:answer_id>', methods=['PUT'])
 @api_login_required
 def save_answer(answer_id):
-    answer = Answer.query.get_or_404(answer_id)
+    answer = Answer.query.filter_by(id=answer_id).with_for_update().first_or_404()
     attempt = answer.attempt
     if attempt.user_id != current_user_id():
         return jsonify({'error': 'Forbidden'}), 403

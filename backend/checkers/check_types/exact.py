@@ -1,5 +1,6 @@
 import re
 import unicodedata
+from checkers.matrix import check_matrix
 
 
 def normalize_text(value, check_config):
@@ -23,6 +24,9 @@ class ExactChecker:
         """
         if answer_value is None:
             return 0, 'Ответ не предоставлен'
+
+        if 'matrix' in check_config:
+            return check_matrix(answer_value, check_config, max_points, normalize_text)
 
         # multi_input: answers is a dict
         if 'answers' in check_config and isinstance(check_config['answers'], dict):

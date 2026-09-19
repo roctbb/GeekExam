@@ -5,6 +5,8 @@ import json
 import hashlib
 import redis
 from models import db, Answer
+from checkers.check_identity import answer_fingerprint
+from checkers.check_report import test_report
 from config import (
     JWT_SECRET,
     REDIS_URL,
@@ -62,6 +64,11 @@ def _parse_callback_id(raw_value):
     if isinstance(raw_value, int):
         return raw_value
     value = str(raw_value).strip()
+    if ':' in value:
+        identity, fingerprint = value.split(':', 1)
+        if identity.isdigit() and len(fingerprint) == 64 and all(c in '0123456789abcdef' for c in fingerprint):
+            return int(identity)
+        return None
     if value.isdigit():
         return int(value)
     if value.startswith('answer_') and value[7:].isdigit():
@@ -112,9 +119,19 @@ def check_callback():
     if _is_duplicate_callback(data, answer_id):
         return jsonify({'status': 'ok', 'duplicate': True})
 
-    answer = Answer.query.get(answer_id)
+    answer = Answer.query.filter_by(id=answer_id).with_for_update().first()
     if not answer:
         return jsonify({'error': 'Answer not found'}), 404
+
+    callback_id = str(data.get('callback_id', ''))
+    if ':' in callback_id and callback_id.split(':', 1)[1] != answer_fingerprint(answer.value):
+        db.session.rollback()
+        _mark_callback_processed(data, answer_id)
+        return jsonify({'status': 'ok', 'stale': True})
+
+    # Keep the checked version even if the session expires it on commit and a
+    # newer edit arrives before the WebSocket event is emitted.
+    checked_value = answer.value
 
     attempt_finished = answer.attempt.finished_at is not None
 
@@ -123,7 +140,8 @@ def check_callback():
         paste_max = data.get('max_points', 1) or 1
         paste_pts = data.get('points', 0) or 0
         computed_points = round(max_pts * paste_pts / paste_max)
-        comment = _strip_nul_chars(data.get('comment'))
+        comment = _strip_nul_chars(test_report(data, answer.question.check_config or {})
+                                   if answer.question.check_type == 'docker' else data.get('comment'))
 
         if attempt_finished:
             # Final check: persist score permanently.
@@ -144,6 +162,7 @@ def check_callback():
                 'points': computed_points,
                 'check_state': 'intermediate',
                 'check_comment': comment,
+                'checked_value': checked_value,
             }, room=f'attempt_{answer.attempt_id}')
             return jsonify({'status': 'ok'})
     else:
@@ -165,6 +184,7 @@ def check_callback():
         'points': answer.points,
         'check_state': answer.check_state,
         'check_comment': answer.check_comment,
+        'checked_value': checked_value,
     }, room=f'attempt_{answer.attempt_id}')
 
     if attempt_finished:

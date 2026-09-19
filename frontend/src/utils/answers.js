@@ -1,3 +1,12 @@
+export function sameAnswerValue(a, b) {
+  const stable = value => {
+    if (Array.isArray(value)) return value.map(stable)
+    if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])]))
+    return value
+  }
+  return JSON.stringify(stable(a)) === JSON.stringify(stable(b))
+}
+
 export function hasAnswerValue(value) {
   if (value == null) return false
   if (typeof value === 'string') return value.trim().length > 0
@@ -12,6 +21,12 @@ export function isQuestionAnswered(question, value) {
   if (question.type === 'text_input') return hasAnswerValue(value.text)
   if (question.type === 'code_input') return hasAnswerValue(value.code)
   const ui = question.ui_config || {}
+  if (question.type === 'matrix_input') {
+    const n = ui.size
+    return Number.isInteger(n) && n > 0 && Array.isArray(value.matrix) && value.matrix.length === n
+      && value.matrix.every(row => Array.isArray(row) && row.length === n && row.every(hasAnswerValue))
+      && (ui.fields || []).every(field => hasAnswerValue(value.fields?.[field.name]))
+  }
   if (question.type === 'multi_input') {
     return !!ui.fields?.length && ui.fields.every(field => hasAnswerValue(value[field.name]))
   }

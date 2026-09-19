@@ -165,7 +165,7 @@ const hasAttempts = ref(false)
 const jsonInput = ref(null)
 const uid = ref(1)
 
-const questionTypeOptions = ['text_input', 'code_input', 'true_false_table', 'interactive', 'multi_input', 'choice_table']
+const questionTypeOptions = ['text_input', 'code_input', 'true_false_table', 'interactive', 'multi_input', 'choice_table', 'matrix_input']
 const checkTypeOptions = ['exact', 'checker', 'docker', 'ai', 'manual']
 
 const draft = reactive({

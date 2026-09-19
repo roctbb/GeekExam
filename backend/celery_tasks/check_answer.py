@@ -120,10 +120,12 @@ def check_single_answer(answer_id, intermediate=False):
             return
 
         if is_async_check(check_type):
+            from checkers.check_identity import answer_fingerprint
             checker = get_checker(check_type)
+            checked_value = answer.value or {}
             submit_result = checker.submit(
                 answer.id,
-                answer.value or {},
+                checked_value,
                 question.check_config or {},
                 question.body,
                 check_type,
@@ -134,6 +136,10 @@ def check_single_answer(answer_id, intermediate=False):
             else:
                 ok, error_message = bool(submit_result), None
             if not ok:
+                answer = Answer.query.filter_by(id=answer_id).populate_existing().with_for_update().first()
+                if not answer or answer_fingerprint(answer.value) != answer_fingerprint(checked_value):
+                    db.session.rollback()
+                    return
                 if intermediate:
                     # Don't permanently mark as error for intermediate checks —
                     # restore pending so the answer is still checked on finish.
@@ -150,6 +156,7 @@ def check_single_answer(answer_id, intermediate=False):
                     'points': answer.points,
                     'check_state': 'error',
                     'check_comment': error_message or 'Ошибка отправки на проверку',
+                    'checked_value': checked_value,
                 }, room=f'attempt_{answer.attempt_id}')
         else:
             checker = get_checker(check_type)

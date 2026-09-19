@@ -51,13 +51,8 @@
           <div v-else-if="q.type === 'choice_table'" class="mt-1">
             <ChoiceTableQuestion :question="q" :modelValue="answer(q.id)?.value" :readonly="true" :checkResult="null" />
           </div>
-          <div v-else-if="q.type === 'multi_input'" class="mt-1">
-            <span v-if="!answer(q.id)?.value" class="text-muted">—</span>
-            <span v-for="field in (q.ui_config?.fields || [])" :key="field.name" class="me-3">
-              <span class="ge-markdown-inline" v-html="markdownInline(field.label || field.name)" />
-              <strong>{{ answer(q.id)?.value?.[field.name] ?? '—' }}</strong>
-            </span>
-          </div>
+          <MatrixInputQuestion v-else-if="q.type === 'matrix_input'" :question="q" :modelValue="answer(q.id)?.value" :readonly="true" />
+          <MultiInputQuestion v-else-if="q.type === 'multi_input'" :question="q" :modelValue="answer(q.id)?.value" :readonly="true" />
           <div v-else class="ge-answer-text mt-1">{{ answer(q.id)?.value?.text || '—' }}</div>
         </div>
         <template v-if="q.check_config && answer(q.id)?.check_state === 'checked' && answer(q.id)?.points < q.max_points">
@@ -86,6 +81,8 @@ import { io } from 'socket.io-client'
 import api from '../api'
 import { numberedQuestionTitle, scoreStatus } from '../utils/answers'
 import CheckResult from '../components/CheckResult.vue'
+import MatrixInputQuestion from '../components/questions/MatrixInputQuestion.vue'
+import MultiInputQuestion from '../components/questions/MultiInputQuestion.vue'
 import MarkdownBody from '../components/MarkdownBody.vue'
 import TrueFalseTableQuestion from '../components/questions/TrueFalseTableQuestion.vue'
 import ChoiceTableQuestion from '../components/questions/ChoiceTableQuestion.vue'

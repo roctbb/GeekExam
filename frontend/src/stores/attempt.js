@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import api from '../api'
+import { sameAnswerValue } from '../utils/answers'
 
 export const useAttemptStore = defineStore('attempt', () => {
   const attempt = ref(null)
@@ -19,6 +20,7 @@ export const useAttemptStore = defineStore('attempt', () => {
   function applyWsUpdate(payload) {
     const a = answers.value[payload.question_id]
     if (a) {
+      if (payload.checked_value !== undefined && !sameAnswerValue(a.value, payload.checked_value)) return
       // 'intermediate': result shown in UI, but check_state stays 'intermediate'
       // (not 'checked') so the answer is re-evaluated on final submission.
       a.points = payload.points

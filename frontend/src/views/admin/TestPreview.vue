@@ -36,9 +36,10 @@
         <span class="badge bg-secondary">{{ currentQuestion.max_points }} б.</span>
       </div>
       <div class="card-body">
-        <MarkdownBody class="mb-3" :source="currentQuestion.body" />
+        <div :class="{ 'ge-question-split': currentQuestion.type === 'code_input' && currentQuestion.ui_config?.layout === 'split' }">
+        <MarkdownBody class="mb-3 ge-question-condition" :source="currentQuestion.body" :copy-code="currentQuestion.type === 'code_input'" />
         <component
-          :is="questionComponent(currentQuestion.type)"
+          :is="questionComponent(currentQuestion.type)" :key="currentQuestion.id"
           :question="currentQuestion"
           :modelValue="answers[currentQuestion.id]"
           :readonly="false"
@@ -46,6 +47,7 @@
           @update:modelValue="onAnswerUpdate"
           @check="onPreviewCheck"
         />
+        </div>
         <div class="d-flex justify-content-between mt-3">
           <button class="btn btn-outline-secondary btn-sm" :disabled="activeTab === 0" @click="activeTab--">← Назад</button>
           <button class="btn btn-outline-secondary btn-sm" :disabled="activeTab === currentVariant.questions.length - 1" @click="activeTab++">Далее →</button>
@@ -67,6 +69,7 @@ import CodeInputQuestion from '../../components/questions/CodeInputQuestion.vue'
 import TrueFalseTableQuestion from '../../components/questions/TrueFalseTableQuestion.vue'
 import InteractiveQuestion from '../../components/questions/InteractiveQuestion.vue'
 import MultiInputQuestion from '../../components/questions/MultiInputQuestion.vue'
+import MatrixInputQuestion from '../../components/questions/MatrixInputQuestion.vue'
 import ChoiceTableQuestion from '../../components/questions/ChoiceTableQuestion.vue'
 
 const questionComponents = {
@@ -75,7 +78,7 @@ const questionComponents = {
   true_false_table: TrueFalseTableQuestion,
   interactive: InteractiveQuestion,
   multi_input: MultiInputQuestion,
-  choice_table: ChoiceTableQuestion,
+  matrix_input: MatrixInputQuestion, choice_table: ChoiceTableQuestion,
 }
 
 const route = useRoute()
@@ -118,3 +121,10 @@ function formatTime(s) {
   return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`
 }
 </script>
+
+<style scoped>
+.ge-question-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 1.5rem; align-items: start; }
+.ge-question-split > * { min-width: 0; }
+@media (min-width: 1000px) { .ge-question-split .ge-question-condition { max-height: 70vh; overflow-y: auto; padding-right: .75rem; } }
+@media (max-width: 999px) { .ge-question-split { grid-template-columns: minmax(0, 1fr); } }
+</style>

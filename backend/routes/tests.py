@@ -3,6 +3,7 @@ from flask import Blueprint, jsonify, request
 from models import db, Test, Variant, Question, Attempt
 from auth import teacher_required, current_user_id
 from checkers.registry import VALID_QUESTION_TYPES, CHECK_TYPES
+from checkers.matrix import validate_matrix_question
 
 tests_bp = Blueprint('tests', __name__)
 
@@ -19,6 +20,7 @@ def _parse_and_create_test(data, test=None):
 
     for v in data.get('variants', []):
         for q in v.get('questions', []):
+            validate_matrix_question(q)
             if q.get('type') not in VALID_QUESTION_TYPES:
                 raise ValueError(f'Неизвестный тип вопроса: {q.get("type")}')
             if q.get('check_type') not in CHECK_TYPES:
@@ -79,6 +81,7 @@ def _update_existing_test_payload(data, test):
 
         variant.title = vdata.get('title', variant.title)
         for question, qdata in zip(questions, questions_data):
+            validate_matrix_question(qdata)
             if qdata.get('type') not in VALID_QUESTION_TYPES:
                 raise ValueError(f'Неизвестный тип вопроса: {qdata.get("type")}')
             if qdata.get('check_type') not in CHECK_TYPES:

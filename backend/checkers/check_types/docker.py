@@ -2,6 +2,7 @@ import time
 import jwt
 import requests
 from config import GEEKPASTE_API_URL, JWT_SECRET, CALLBACK_BASE_URL
+from checkers.check_identity import versioned_callback_id
 
 
 def _make_service_token():
@@ -22,7 +23,7 @@ class DockerChecker:
             config.setdefault('assessment_mode', 'rubric')
         payload = {
             'callback_url': f'{CALLBACK_BASE_URL}/api/callback/check',
-            'callback_id': str(answer_id),
+            'callback_id': versioned_callback_id(answer_id, answer_value),
             'code': answer_value.get('code') or answer_value.get('text', ''),
             'lang': check_config.get('lang', 'python'),
             'task_text': question_body or '',

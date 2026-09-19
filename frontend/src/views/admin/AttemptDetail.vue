@@ -55,12 +55,8 @@
               <strong>{{ v === true ? 'В' : v === false ? 'Н' : '—' }}</strong>
             </span>
           </div>
-          <div v-else-if="q.type === 'multi_input'" class="mt-1">
-            <span v-for="field in (q.ui_config?.fields || [])" :key="field.name" class="me-3">
-              <span class="ge-markdown-inline" v-html="markdownInline(field.label || field.name)" />
-              <strong>{{ answer(q.id)?.value?.[field.name] ?? '—' }}</strong>
-            </span>
-          </div>
+          <MatrixInputQuestion v-else-if="q.type === 'matrix_input'" :question="q" :modelValue="answer(q.id)?.value" :readonly="true" />
+          <MultiInputQuestion v-else-if="q.type === 'multi_input'" :question="q" :modelValue="answer(q.id)?.value" :readonly="true" />
           <div v-else-if="q.type === 'choice_table'" class="mt-1">
             <span v-if="!answer(q.id)?.value?.answers?.length" class="text-muted">—</span>
             <span v-for="(v, idx) in (answer(q.id)?.value?.answers || [])" :key="idx" class="me-2 badge bg-light text-dark border ge-answer-badge">
@@ -120,6 +116,8 @@ import api from '../../api'
 import { numberedQuestionTitle, scoreStatus } from '../../utils/answers'
 import AutoTextarea from '../../components/AutoTextarea.vue'
 import ExpectedAnswer from '../../components/ExpectedAnswer.vue'
+import MatrixInputQuestion from '../../components/questions/MatrixInputQuestion.vue'
+import MultiInputQuestion from '../../components/questions/MultiInputQuestion.vue'
 import MarkdownBody from '../../components/MarkdownBody.vue'
 import { renderMarkdown } from '../../utils/markdown'
 
