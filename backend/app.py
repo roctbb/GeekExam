@@ -7,7 +7,7 @@ from routes.tests import tests_bp
 from routes.attempts import attempts_bp
 from routes.answers import answers_bp
 from routes.callbacks import callbacks_bp
-from flask_socketio import join_room
+from socket_events import register_socket_handlers
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(tests_bp)
@@ -16,9 +16,7 @@ app.register_blueprint(answers_bp)
 app.register_blueprint(callbacks_bp)
 
 
-@socketio.on('join')
-def on_join(data):
-    join_room(data.get('room'))
+register_socket_handlers(socketio)
 
 
 if __name__ == '__main__':

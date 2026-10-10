@@ -4,14 +4,15 @@
       <h4>Результаты</h4>
       <RouterLink :to="`/admin/tests/${$route.params.id}`" class="btn btn-outline-secondary btn-sm">← Назад</RouterLink>
     </div>
+    <div v-if="actionError" class="alert alert-danger" role="alert">{{ actionError }}</div>
     <div v-if="error" class="alert alert-danger" role="alert">
       {{ error }} <button class="btn btn-sm btn-outline-danger" :disabled="refreshing" @click="refresh">Повторить</button>
     </div>
     <div v-if="loading" class="text-center py-4"><div class="spinner-border" /></div>
     <div v-else-if="!error && attempts.length === 0" class="text-center py-5 text-muted">Пока никто не проходил этот тест</div>
     <div v-else-if="attempts.length">
-      <div class="d-flex justify-content-end mb-2 gap-2">
-        <select v-model="sortBy" class="form-select form-select-sm" style="width:auto">
+      <div class="d-flex justify-content-end mb-2 gap-2 flex-wrap">
+        <select aria-label="Сортировка результатов" v-model="sortBy" class="form-select form-select-sm" style="width:auto">
           <option value="started_at">Сортировка: по времени</option>
           <option value="user_name">Сортировка: по имени</option>
         </select>
@@ -39,7 +40,7 @@
                 <span v-if="isRechecking(a.id)" class="spinner-border spinner-border-sm me-1" />
                 {{ isRechecking(a.id) ? 'Запуск...' : 'Перепроверить' }}
               </button>
-              <button class="btn btn-sm btn-outline-danger" @click="del(a.id)">Удалить</button>
+              <button class="btn btn-sm btn-outline-danger" :disabled="deletingIds.has(a.id)" @click="del(a.id)">Удалить</button>
             </td>
           </tr>
         </tbody>
@@ -54,13 +55,20 @@ import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import api from '../../api'
 import { useResultList } from '../../composables/useResultList'
+import { formatDateTime as fmt, parseApiDate } from '../../utils/dates'
 const route = useRoute()
 const { attempts, loading, refreshing, error, refresh } = useResultList(() => api.getTestAttempts(route.params.id))
 const sortBy = ref('started_at')
 const sortDir = ref('desc')
 const recheckingIds = ref(new Set())
-const fmt = (d) => d ? new Date(d).toLocaleString('ru') : ''
-async function del(id) { if (!confirm('Удалить прохождение?')) return; await api.deleteAttempt(id); attempts.value = attempts.value.filter(a => a.id !== id) }
+const deletingIds = ref(new Set()), actionError = ref('')
+async function del(id) {
+  if (deletingIds.value.has(id) || !confirm('Удалить прохождение?')) return
+  deletingIds.value.add(id); actionError.value = ''
+  try { await api.deleteAttempt(id); attempts.value = attempts.value.filter(a => a.id !== id); await refresh() }
+  catch (e) { actionError.value = e?.response?.data?.error || 'Не удалось удалить прохождение. Повторите попытку.' }
+  finally { deletingIds.value.delete(id) }
+}
 const isRechecking = (id) => recheckingIds.value.has(id)
 
 function toggleSortDir() {
@@ -75,6 +83,8 @@ function setRechecking(id, value) {
 }
 
 async function recheck(attempt) {
+  if (isRechecking(attempt.id)) return
+  actionError.value = ''
   if (!confirm(`Перепроверить работу ${attempt.user_name}? Баллы по автопроверяемым вопросам будут обновлены.`)) return
   setRechecking(attempt.id, true)
   try {
@@ -83,7 +93,7 @@ async function recheck(attempt) {
     if (current) { current.is_checked = false; current.total_points = null }
     await refresh()
   } catch (e) {
-    alert(e?.response?.data?.error || 'Не удалось запустить перепроверку работы')
+    actionError.value = e?.response?.data?.error || 'Не удалось запустить перепроверку работы'
   } finally {
     setRechecking(attempt.id, false)
   }
@@ -95,8 +105,8 @@ const sortedAttempts = computed(() => {
     if (sortBy.value === 'user_name') {
       return dir * (a.user_name || '').localeCompare(b.user_name || '', 'ru')
     }
-    const aTs = a.started_at ? new Date(a.started_at).getTime() : 0
-    const bTs = b.started_at ? new Date(b.started_at).getTime() : 0
+    const aTs = parseApiDate(a.started_at)?.getTime() || 0
+    const bTs = parseApiDate(b.started_at)?.getTime() || 0
     return dir * (aTs - bTs)
   })
 })

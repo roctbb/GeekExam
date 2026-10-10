@@ -4,7 +4,8 @@ import time
 import json
 import hashlib
 import redis
-from models import db, Answer
+from models import db
+from attempt_lifecycle import lock_answer
 from checkers.check_identity import answer_fingerprint
 from checkers.check_report import test_report
 from config import (
@@ -119,8 +120,8 @@ def check_callback():
     if _is_duplicate_callback(data, answer_id):
         return jsonify({'status': 'ok', 'duplicate': True})
 
-    answer = Answer.query.filter_by(id=answer_id).with_for_update().first()
-    if not answer:
+    answer, attempt = lock_answer(answer_id)
+    if not answer or not attempt:
         return jsonify({'error': 'Answer not found'}), 404
 
     callback_id = str(data.get('callback_id', ''))
@@ -133,7 +134,17 @@ def check_callback():
     # newer edit arrives before the WebSocket event is emitted.
     checked_value = answer.value
 
-    attempt_finished = answer.attempt.finished_at is not None
+    attempt_finished = attempt.finished_at is not None
+    if attempt_finished and answer.check_state == 'checked':
+        # A late/duplicate automatic result must not overwrite a recorded grade.
+        db.session.rollback()
+        _mark_callback_processed(data, answer_id)
+        return jsonify({'status': 'ok', 'stale': True})
+    if attempt_finished:
+        # A timed-out submission may still produce a valid callback later.
+        # Recompute the total even if the earlier error already finalized it.
+        attempt.is_checked = False
+        attempt.total_points = None
 
     if data.get('status') == 'success':
         max_pts = answer.question.max_points

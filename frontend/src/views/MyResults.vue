@@ -39,8 +39,8 @@
 <script setup>
 import api from '../api'
 import { useResultList } from '../composables/useResultList'
+import { formatDateTime as fmt } from '../utils/dates'
 
 const { attempts, loading, refreshing, error, refresh } = useResultList(api.myAttempts)
-const fmt = (d) => d ? new Date(d).toLocaleString('ru') : ''
 
 </script>

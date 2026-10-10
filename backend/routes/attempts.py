@@ -1,13 +1,16 @@
+from time_utils import utc_iso
 import random
 import re
 from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify, request
 from sqlalchemy.exc import IntegrityError
+from math import isclose
 
 from auth import api_login_required, teacher_required, current_user_id, current_role
 from models import db, Test, Attempt, Answer, Variant
 from checkers.check_types.exact import normalize_text
+from attempt_lifecycle import finish_locked_attempt
 
 attempts_bp = Blueprint('attempts', __name__)
 
@@ -61,39 +64,44 @@ def _topic_summary(attempt):
         if not answer or answer.check_state != 'checked' or answer.points is None:
             continue
 
-        value = answer.value or {}
+        value = answer.value if isinstance(answer.value, dict) else {}
         check_config = question.check_config or {}
 
+        items = []
         if question.check_type == 'exact' and question.type == 'multi_input' and isinstance(check_config.get('answers'), dict):
             correct = check_config['answers']
             fields = (question.ui_config or {}).get('fields') or []
             fields_by_name = {field.get('name'): field for field in fields if isinstance(field, dict)}
-            item_max = question.max_points / max(len(correct), 1)
             for key, expected in correct.items():
                 field = fields_by_name.get(key, {'name': key})
                 got = normalize_text(value.get(key, ''), check_config)
                 exp = normalize_text(expected, check_config)
                 is_correct = got == exp
-                _add_topic_stat(stats, _topic_from_field(question, field), item_max if is_correct else 0, item_max, is_correct)
-            continue
+                items.append((_topic_from_field(question, field), is_correct))
 
         if question.check_type == 'exact' and question.type == 'true_false_table' and isinstance(check_config.get('correct'), list):
             correct = check_config['correct']
             given = value.get('answers') or []
-            item_max = question.max_points / max(len(correct), 1)
             for index, expected in enumerate(correct):
                 is_correct = index < len(given) and given[index] == expected
-                _add_topic_stat(stats, _topic_from_index(question, 'statement_topics', index), item_max if is_correct else 0, item_max, is_correct)
-            continue
+                items.append((_topic_from_index(question, 'statement_topics', index), is_correct))
 
         if question.check_type == 'exact' and question.type == 'choice_table' and isinstance(check_config.get('correct'), list):
             correct = check_config['correct']
             given = value.get('answers') or []
-            item_max = question.max_points / max(len(correct), 1)
             for index, expected in enumerate(correct):
                 is_correct = index < len(given) and given[index] == expected
-                _add_topic_stat(stats, _topic_from_choice_item(question, index), item_max if is_correct else 0, item_max, is_correct)
-            continue
+                items.append((_topic_from_choice_item(question, index), is_correct))
+
+        # Only split a recorded grade when the field-level allocation is exact.
+        # All-or-nothing grading, rounding and teacher overrides cannot be
+        # reliably attributed to individual fields; report those at question level.
+        if items and check_config.get('partial_scoring', True):
+            item_max = question.max_points / len(items)
+            if isclose(item_max * sum(correct for _, correct in items), answer.points, abs_tol=1e-9):
+                for topic, correct in items:
+                    _add_topic_stat(stats, topic, item_max if correct else 0, item_max, correct)
+                continue
 
         # Use the recorded grade for single answers, including teacher overrides.
         # Re-comparing with the reference here would undo manual grading in the summary.
@@ -150,14 +158,14 @@ def _attempt_detail(attempt, include_check_config=False):
         'test_id': attempt.test_id,
         'test_title': attempt.test.title,
         'variant_id': attempt.variant_id,
-        'started_at': attempt.started_at.isoformat() if attempt.started_at else None,
-        'finished_at': attempt.finished_at.isoformat() if attempt.finished_at else None,
+        'started_at': utc_iso(attempt.started_at),
+        'finished_at': utc_iso(attempt.finished_at),
         'is_checked': attempt.is_checked,
         'total_points': attempt.total_points,
         'max_points': attempt.max_points,
         'time_left': time_left,
-        'server_time': server_now.isoformat() + 'Z',
-        'time_deadline_at': time_deadline_at.isoformat() + 'Z' if time_deadline_at else None,
+        'server_time': utc_iso(server_now),
+        'time_deadline_at': utc_iso(time_deadline_at),
         'questions': questions,
         'answers': [
             {
@@ -193,6 +201,8 @@ def join_test():
         return jsonify({'error': 'Вы уже проходили этот тест', 'attempt_id': existing.id}), 422
 
     available = test.variants
+    if not available or any(not variant.questions for variant in available):
+        return jsonify({'error': 'Тест не содержит вариантов с вопросами'}), 422
 
     variant = random.choice(available)
     max_points = sum(q.max_points for q in variant.questions)
@@ -241,26 +251,12 @@ def get_attempt(attempt_id):
 @attempts_bp.route('/api/attempts/<int:attempt_id>/finish', methods=['POST'])
 @api_login_required
 def finish_attempt(attempt_id):
-    attempt = Attempt.query.get_or_404(attempt_id)
+    attempt = Attempt.query.filter_by(id=attempt_id).with_for_update().first_or_404()
     if attempt.user_id != current_user_id():
         return jsonify({'error': 'Forbidden'}), 403
 
-    # Atomic update: only set finished_at when it is still NULL.
-    # Prevents double-finalization from concurrent requests (e.g. timer + button).
-    now = datetime.utcnow()
-    updated = (
-        db.session.execute(
-            db.update(Attempt)
-            .where(Attempt.id == attempt_id, Attempt.finished_at.is_(None))
-            .values(finished_at=now)
-        ).rowcount
-    )
-    db.session.commit()
-    if updated == 0:
+    if not finish_locked_attempt(attempt):
         return jsonify({'error': 'Тест уже завершён'}), 422
-
-    from celery_tasks.check_answer import check_attempt_answers
-    check_attempt_answers.delay(attempt_id)
 
     return jsonify({'status': 'finished'})
 
@@ -268,7 +264,7 @@ def finish_attempt(attempt_id):
 @attempts_bp.route('/api/attempts/<int:attempt_id>/recheck', methods=['POST'])
 @teacher_required
 def recheck_attempt(attempt_id):
-    attempt = Attempt.query.get_or_404(attempt_id)
+    attempt = Attempt.query.filter_by(id=attempt_id).with_for_update().first_or_404()
     if not attempt.finished_at:
         return jsonify({'error': 'Перепроверка доступна только для завершённых работ'}), 422
 
@@ -307,8 +303,8 @@ def my_attempts():
             'test_id': a.test_id,
             'test_title': a.test.title,
             'variant_title': a.variant.title,
-            'started_at': a.started_at.isoformat() if a.started_at else None,
-            'finished_at': a.finished_at.isoformat() if a.finished_at else None,
+            'started_at': utc_iso(a.started_at),
+            'finished_at': utc_iso(a.finished_at),
             'is_checked': a.is_checked,
             'total_points': a.total_points,
             'max_points': a.max_points,
@@ -323,4 +319,6 @@ def my_attempt_results(attempt_id):
     attempt = Attempt.query.get_or_404(attempt_id)
     if attempt.user_id != current_user_id():
         return jsonify({'error': 'Forbidden'}), 403
+    if not attempt.finished_at:
+        return jsonify({'error': 'Результаты доступны после завершения теста'}), 422
     return jsonify(_attempt_detail(attempt, include_check_config=True))

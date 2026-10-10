@@ -76,9 +76,10 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { io } from 'socket.io-client'
 import api from '../api'
+import { createLiveRefresh } from '../utils/liveRefresh'
 import { numberedQuestionTitle, scoreStatus } from '../utils/answers'
 import CheckResult from '../components/CheckResult.vue'
 import MatrixInputQuestion from '../components/questions/MatrixInputQuestion.vue'
@@ -89,29 +90,32 @@ import ChoiceTableQuestion from '../components/questions/ChoiceTableQuestion.vue
 import { renderMarkdown } from '../utils/markdown'
 
 const route = useRoute()
+const router = useRouter()
 const attempt = ref(null)
 const loadError = ref('')
-let socket = null
+
 
 function answer(qid) { return attempt.value?.answers?.find(a => a.question_id === qid) }
 function markdownInline(source) { return renderMarkdown(source, { inline: true }) }
 function formatScore(value) { return Number.isInteger(value) ? value : Number(value).toFixed(2) }
 
-async function loadResult() {
-  loadError.value = ''
-  let data
-  try { ({ data } = await api.myAttemptResults(route.params.id)) } catch {
-    loadError.value = 'Не удалось загрузить результаты.'
-    return
-  }
-  attempt.value = data
-  if (!data.is_checked) {
-    socket = io({ path: '/socket.io' })
-    socket.emit('join', { room: `attempt_${route.params.id}` })
-    socket.on('answer_checked', (upd) => { const a = attempt.value?.answers?.find(x => x.question_id === upd.question_id); if (a) Object.assign(a, upd) })
-    socket.on('attempt_checked', async () => { socket?.disconnect(); await loadResult() })
-  }
-}
-onMounted(loadResult)
-onUnmounted(() => socket?.disconnect())
+const live = createLiveRefresh({
+  socket: io({ path: '/socket.io', autoConnect: false }),
+  room: `attempt_${route.params.id}`,
+  fetchSnapshot: async () => (await api.myAttemptResults(route.params.id)).data,
+  applySnapshot: data => { attempt.value = data },
+  shouldPoll: () => !attempt.value?.is_checked,
+  onError: error => {
+    if (error?.response?.status === 422) {
+      live.stop()
+      router.replace(`/attempt/${route.params.id}`)
+      return
+    }
+    loadError.value = error ? 'Не удалось обновить результаты. Проверьте соединение и повторите.' : ''
+  },
+})
+const loadResult = () => live.refresh()
+onMounted(() => live.start())
+onUnmounted(() => live.stop())
+
 </script>

@@ -9,12 +9,6 @@
       :readonly="readonly"
       @update:model-value="emit('update:modelValue', { code: $event, lang: question.ui_config?.lang || question.check_config?.lang || 'python' })"
     />
-    <div v-if="question.allow_intermediate_check && question.check_type !== 'manual' && !readonly" class="mt-2">
-      <button class="btn btn-sm btn-outline-primary" :disabled="checkResult?.check_state === 'checking'" @click="emit('check')">
-        <span v-if="checkResult?.check_state === 'checking'" class="spinner-border spinner-border-sm me-1" />
-        Проверить
-      </button>
-    </div>
     <CheckResult :result="checkResult" :max-points="question.max_points" />
   </div>
 </template>
@@ -23,5 +17,5 @@
 import CheckResult from '../CheckResult.vue'
 import CodeEditor from '../CodeEditor.vue'
 defineProps({ question: Object, modelValue: Object, readonly: Boolean, checkResult: Object })
-const emit = defineEmits(['update:modelValue', 'check'])
+const emit = defineEmits(['update:modelValue'])
 </script>

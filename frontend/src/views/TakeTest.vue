@@ -1,17 +1,18 @@
 <template>
   <div v-if="store.attempt" class="ge-fade-in">
+    <div class="ge-attempt-toolbar">
     <div class="ge-page-header">
       <h4>{{ store.attempt.test_title }}</h4>
-      <div class="d-flex align-items-center gap-3">
+      <div class="d-flex align-items-center gap-3 flex-wrap">
         <span v-if="timeLeft !== null" class="ge-timer" :class="{ danger: timeLeft < 60 }">
           ⏱ {{ formatTime(timeLeft) }}
         </span>
-        <button class="btn btn-danger btn-sm" :disabled="finishing || saveClosed" @click="confirmFinish">{{ finishing ? 'Завершаю…' : 'Завершить' }}</button>
+        <button class="btn btn-danger btn-sm" :disabled="finishing || saveClosed || hasRecovery || !!store.attempt.finished_at" @click="confirmFinish">{{ finishing ? 'Завершаю…' : 'Завершить' }}</button>
       </div>
     </div>
 
     <div v-if="saveClosed" class="alert alert-warning" role="alert">
-      Тест уже завершён. Последние изменения не сохранены. При необходимости скопируйте ответ перед выходом.
+      Тест завершён. Показанный черновик может отличаться от отправленных ответов. Скопируйте нужный текст перед выходом.
       <button class="btn btn-sm btn-outline-secondary ms-2" @click="openClosedResults">Открыть результаты</button>
     </div>
     <div v-else-if="actionError" class="alert alert-danger" role="alert">{{ actionError }}</div>
@@ -26,6 +27,15 @@
     <div class="ge-progress">
       <div class="ge-progress-bar" :style="{ width: progressPct + '%' }" />
     </div>
+    </div>
+    <div v-if="hasRecovery" class="alert alert-warning" role="alert">
+      Найдены несохранённые ответы с прошлого посещения. Восстановление заменит соответствующие ответы на экране.
+      <div class="d-flex gap-2 flex-wrap mt-2">
+        <button class="btn btn-sm btn-primary" @click="restoreDrafts">{{ saveClosed ? 'Показать черновик' : 'Восстановить ответы' }}</button>
+        <button class="btn btn-sm btn-outline-secondary" @click="discardDrafts">Оставить ответы с сервера</button>
+      </div>
+    </div>
+    <div v-if="draftWarning" class="alert alert-warning" role="alert">{{ draftWarning }}</div>
 
     <!-- Question tabs -->
     <div class="ge-question-tabs">
@@ -47,9 +57,11 @@
         <MarkdownBody class="mb-3 ge-question-condition" :source="currentQuestion.body" :copy-code="currentQuestion.type === 'code_input'" />
         <component :is="questionComponent(currentQuestion.type)" :key="currentQuestion.id"
           :question="currentQuestion" :modelValue="currentAnswer.value"
-          :readonly="!!store.attempt.finished_at || finishing || saveClosed" :checkResult="currentAnswer"
-          @update:modelValue="onAnswerUpdate" @check="onIntermediateCheck" />
+          :readonly="answerReadonly" :checkResult="currentAnswer"
+          @update:modelValue="onAnswerUpdate" />
         </div>
+        <IntermediateCheckButton :question="currentQuestion" :result="currentAnswer" :readonly="answerReadonly"
+          :busy="checkingIds.has(currentQuestion.id)" @check="onIntermediateCheck" />
         <div class="d-flex justify-content-between mt-3">
           <button class="btn btn-outline-secondary btn-sm" :disabled="activeTab === 0" @click="activeTab--">← Назад</button>
           <button class="btn btn-outline-secondary btn-sm" :disabled="activeTab === store.attempt.questions.length - 1" @click="activeTab++">Далее →</button>
@@ -63,12 +75,16 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
+import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { io } from 'socket.io-client'
 import { useAttemptStore } from '../stores/attempt'
+import { useAuthStore } from '../stores/auth'
 import api from '../api'
-import { isQuestionAnswered, scoreStatus } from '../utils/answers'
+import { isQuestionAnswered, scoreStatus, sameAnswerValue } from '../utils/answers'
 import { createAnswerSaver } from '../utils/answerSaver'
+import { createDraftStorage, createAnswerDrafts } from '../utils/drafts'
+import { createLiveRefresh } from '../utils/liveRefresh'
+import IntermediateCheckButton from '../components/IntermediateCheckButton.vue'
 import MarkdownBody from '../components/MarkdownBody.vue'
 import TextInputQuestion from '../components/questions/TextInputQuestion.vue'
 import CodeInputQuestion from '../components/questions/CodeInputQuestion.vue'
@@ -88,19 +104,32 @@ const timeLeft = ref(null)
 const finishing = ref(false)
 const timeDeadlineMs = ref(null)
 let serverClockOffsetMs = 0
-let timerInterval = null, timerSyncInterval = null, socket = null
+let timerInterval = null, live = null, disposed = false
 const saveState = ref('idle')
 const actionError = ref('')
 const loadError = ref('')
 const saveClosed = ref(false)
+const recoveredDrafts = ref({})
+const hasRecovery = computed(() => Object.keys(recoveredDrafts.value).length > 0)
+const draftWarning = ref('')
+const checkingIds = ref(new Set())
+const answerReadonly = computed(() => !!store.attempt?.finished_at || finishing.value || saveClosed.value || timeLeft.value === 0 || hasRecovery.value)
+const drafts = createAnswerDrafts(createDraftStorage(`geekexam:answers:${useAuthStore().user.id}:${route.params.id}`))
 let leaveUnsaved = false
+function draftStored(ok) {
+  draftWarning.value = ok ? '' : 'Не удалось сохранить резервный черновик в браузере. Не закрывайте страницу, пока ответы не отправлены на сервер.'
+}
 const saver = createAnswerSaver(async (id, value) => {
-  try { await api.saveAnswer(id, value) } catch (e) {
-    if (e?.response?.status === 422) { saveClosed.value = true; stopTimer() }
+  try {
+    await api.saveAnswer(id, value)
+    draftStored(drafts.acknowledge(id, value))
+  } catch (e) {
+    if (e?.response?.data?.error_code === 'attempt_finished') { saveClosed.value = true; stopTimer() }
     throw e
   }
 }, state => { saveState.value = state })
 let autoFinishAttempted = false
+let nextFinishRetryAt = 0
 
 const currentQuestion = computed(() => store.attempt?.questions[activeTab.value])
 const currentAnswer = computed(() => store.answers[currentQuestion.value?.id] || {})
@@ -123,7 +152,7 @@ function tabClass(question) {
 function formatTime(s) { return `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}` }
 
 function onAnswerUpdate(value) {
-  if (finishing.value || saveClosed.value || store.attempt.finished_at) return
+  if (answerReadonly.value) return
   const questionId = currentQuestion.value.id
   const prev = currentAnswer.value
 
@@ -135,56 +164,75 @@ function onAnswerUpdate(value) {
     : { value }
 
   store.updateAnswer(questionId, patch)
-  if (valueChanged) saver.schedule(prev.id, value)
+  if (valueChanged) {
+    draftStored(drafts.set(prev.id, value))
+    saver.schedule(prev.id, value)
+    if (timeLeft.value !== null && timeLeft.value <= 10) saver.flush().catch(() => {})
+  }
 }
 
 async function onIntermediateCheck() {
-  const questionId = currentQuestion.value.id
-  const answerId = currentAnswer.value.id
-  const prev = { ...currentAnswer.value }
-
-  // Flush any pending debounced save so the checker sees the latest value
-  try { await saver.flush() } catch {
-    actionError.value = 'Сначала сохраните ответ, затем запустите проверку.'
-    return
-  }
-
-  // Clear stale points/comment while new check is in flight.
-  store.updateAnswer(questionId, { check_state: 'checking', points: null, check_comment: null })
+  const question = currentQuestion.value
+  const questionId = question.id
+  if (answerReadonly.value || checkingIds.value.has(questionId)) return
+  checkingIds.value.add(questionId)
+  actionError.value = ''
+  let previous
   try {
-    await api.checkAnswer(answerId)
+    if (question.type === 'code_input' && currentAnswer.value.value == null && question.ui_config?.starter_code) {
+      onAnswerUpdate({ code: question.ui_config.starter_code, lang: question.ui_config.lang || 'python' })
+    }
+    await saver.flush()
+    if (answerReadonly.value) return
+    previous = { ...store.answers[questionId] }
+    store.updateAnswer(questionId, { check_state: 'checking', points: null, check_comment: null })
+    await api.checkAnswer(previous.id)
+    await live?.refresh()
   } catch (e) {
-    // Roll back optimistic "checking" state when request fails.
-    store.updateAnswer(questionId, {
-      check_state: prev.check_state ?? 'pending',
-      check_comment: prev.check_comment ?? null,
-      points: prev.points ?? null,
-    })
-    alert(e?.response?.data?.error || 'Не удалось запустить промежуточную проверку')
+    const current = store.answers[questionId]
+    if (previous && sameAnswerValue(current.value, previous.value) && current.check_state === 'checking') {
+      store.updateAnswer(questionId, { check_state: previous.check_state, check_comment: previous.check_comment, points: previous.points })
+    }
+    actionError.value = e?.response?.data?.error || 'Не удалось сохранить или проверить ответ. Проверьте соединение и повторите.'
+  } finally { checkingIds.value.delete(questionId) }
+}
+
+function showFinished(data) {
+  store.attempt.finished_at = data.finished_at || store.attempt.finished_at || new Date().toISOString()
+  stopTimer()
+  live?.stop()
+  if (saver.hasPending() || hasRecovery.value || saveClosed.value) {
+    saveClosed.value = true
+    finishing.value = false
+  } else {
+    router.replace(`/my-results/${route.params.id}`)
   }
 }
 
 async function doFinish() {
-  if (finishing.value) return
+  if (finishing.value || hasRecovery.value) return
   finishing.value = true
   actionError.value = ''
   try { await saver.flush() } catch {
-    finishing.value = false
-    actionError.value = 'Ответы не сохранены. Повторите сохранение перед завершением теста.'
-    return
+    if (timeLeft.value !== 0 && !saveClosed.value) {
+      finishing.value = false
+      actionError.value = 'Ответы не сохранены. Повторите сохранение перед завершением теста.'
+      return
+    }
+    // A failed last save must not keep an expired attempt editable. Preserve
+    // its draft, but still request finalization of the server's saved answers.
+    saveClosed.value = true
   }
   try {
     await api.finishAttempt(route.params.id)
-    stopTimer()
-    router.push(`/my-results/${route.params.id}`)
+    showFinished({})
   } catch (e) {
-    // 422 means already finished — navigate anyway.
-    if (e?.response?.status === 422) {
-      stopTimer()
-      router.push(`/my-results/${route.params.id}`)
-    } else {
+    if (e?.response?.status === 422) showFinished({})
+    else {
       finishing.value = false
-      actionError.value = 'Не удалось завершить тест. Попробуйте ещё раз.'
+      autoFinishAttempted = false
+      nextFinishRetryAt = Date.now() + 5000
+      actionError.value = 'Не удалось завершить тест. Проверьте соединение и повторите.'
     }
   }
 }
@@ -206,19 +254,46 @@ async function retrySaves() {
 }
 
 function beforeUnload(event) {
-  if (leaveUnsaved || !saver.hasPending()) return
+  if (leaveUnsaved || (!saver.hasPending() && !hasRecovery.value)) return
   event.preventDefault()
   event.returnValue = ''
 }
 
-onBeforeRouteLeave(async () => {
+async function beforeLeave() {
   if (leaveUnsaved) return true
+  if (hasRecovery.value) return confirm('Покинуть страницу? Несохранённые ответы останутся в черновике этого браузера.')
   if (!saver.hasPending()) return true
   try { await saver.flush(); return true } catch {
     actionError.value = 'Не удалось сохранить ответы. Повторите сохранение перед выходом.'
     return false
   }
-})
+}
+onBeforeRouteLeave(beforeLeave)
+onBeforeRouteUpdate(beforeLeave)
+
+function restoreDrafts() {
+  const entries = recoveredDrafts.value
+  recoveredDrafts.value = {}
+  for (const [id, entry] of Object.entries(entries)) {
+    const answer = Object.values(store.answers).find(a => String(a.id) === id)
+    if (!answer) continue
+    store.updateAnswer(answer.question_id, { value: entry.value, check_state: 'pending', points: null, check_comment: null })
+    if (!saveClosed.value && !store.attempt.finished_at && timeLeft.value !== 0) saver.schedule(answer.id, entry.value)
+  }
+  if (!saveClosed.value && !store.attempt.finished_at && timeLeft.value !== 0) retrySaves()
+  else {
+    saveClosed.value = true
+    if (!store.attempt.finished_at) doFinish()
+  }
+}
+
+function discardDrafts() {
+  if (!confirm('Удалить найденный черновик и оставить ответы с сервера?')) return
+  recoveredDrafts.value = {}
+  draftStored(drafts.clear())
+  if (store.attempt.finished_at) { saveClosed.value = false; showFinished(store.attempt) }
+  else if (timeLeft.value === 0) doFinish()
+}
 
 function openClosedResults() {
   if (!confirm('Последние изменения не сохранены. Открыть результаты и покинуть эту страницу?')) return
@@ -263,47 +338,39 @@ function updateTimeLeft() {
   const serverNowMs = Date.now() + serverClockOffsetMs
   const remaining = Math.max(0, Math.ceil((timeDeadlineMs.value - serverNowMs) / 1000))
   timeLeft.value = remaining
-  if (remaining === 0 && !autoFinishAttempted) { autoFinishAttempted = true; doFinish() }
+  if (remaining === 0 && !autoFinishAttempted && Date.now() >= nextFinishRetryAt) { autoFinishAttempted = true; doFinish() }
 }
 
-async function refreshTimer() {
-  if (!store.attempt || !timeDeadlineMs.value || finishing.value) return
-  try {
-    const { data } = await api.getAttempt(route.params.id)
-    store.attempt.finished_at = data.finished_at
-    store.attempt.time_left = data.time_left
-    store.attempt.server_time = data.server_time
-    store.attempt.time_deadline_at = data.time_deadline_at
-
-    if (data.finished_at) {
-      stopTimer()
-      router.push(`/my-results/${route.params.id}`)
-      return
+function mergeSnapshot(data) {
+  // Do not replace typed values with an HTTP response that started before a
+  // local edit/save. Only adopt check results for the exact displayed answer.
+  Object.assign(store.attempt, data)
+  for (const answer of data.answers) {
+    const local = store.answers[answer.question_id]
+    if (local && !saver.hasPending(answer.id) && sameAnswerValue(local.value, answer.value)) {
+      store.updateAnswer(answer.question_id, answer)
     }
-    syncTimerFromAttempt(data)
-  } catch {
-    updateTimeLeft()
   }
+  if (data.finished_at) showFinished(data)
+  else syncTimerFromAttempt(data)
 }
 
+function onOnline() {
+  if (!saveClosed.value && timeLeft.value !== 0 && saver.hasPending()) retrySaves()
+  if (timeLeft.value === 0 && !store.attempt?.finished_at) doFinish()
+}
 function onVisibilityChange() {
-  if (!document.hidden) refreshTimer()
+  if (document.hidden && !saveClosed.value && saver.hasPending()) saver.flush().catch(() => {})
 }
 
 function startTimer(attempt) {
   syncTimerFromAttempt(attempt)
-  if (!timeDeadlineMs.value) return
-  timerInterval = setInterval(updateTimeLeft, 1000)
-  timerSyncInterval = setInterval(refreshTimer, 30000)
-  document.addEventListener('visibilitychange', onVisibilityChange)
+  if (timeDeadlineMs.value) timerInterval = setInterval(updateTimeLeft, 1000)
 }
 
 function stopTimer() {
   clearInterval(timerInterval)
-  clearInterval(timerSyncInterval)
   timerInterval = null
-  timerSyncInterval = null
-  document.removeEventListener('visibilitychange', onVisibilityChange)
 }
 
 async function loadAttempt() {
@@ -312,24 +379,42 @@ async function loadAttempt() {
     loadError.value = 'Не удалось загрузить тест.'
     return
   }
+  if (disposed) return
+  const savedDrafts = drafts.entries()
+  for (const answer of Object.values(store.answers)) {
+    const draft = savedDrafts[answer.id]
+    if (!draft || !Object.hasOwn(draft, 'value')) continue
+    if (sameAnswerValue(answer.value, draft.value)) draftStored(drafts.acknowledge(answer.id, draft.value))
+    else recoveredDrafts.value[answer.id] = draft
+  }
   startTimer(store.attempt)
-  socket = io({ path: '/socket.io' })
-  socket.emit('join', { room: `attempt_${route.params.id}` })
-  socket.on('answer_checked', (data) => store.applyWsUpdate(data))
-  socket.on('attempt_checked', () => router.push(`/my-results/${route.params.id}`))
+  if (store.attempt.finished_at) { showFinished(store.attempt); return }
+  live = createLiveRefresh({
+    socket: io({ path: '/socket.io', autoConnect: false }),
+    room: `attempt_${route.params.id}`,
+    fetchSnapshot: async () => (await api.getAttempt(route.params.id)).data,
+    applySnapshot: mergeSnapshot,
+    shouldPoll: () => !store.attempt.finished_at,
+  })
+  live.start()
 }
 
 onMounted(() => {
   store.attempt = null
   loadAttempt()
   window.addEventListener('beforeunload', beforeUnload)
+  window.addEventListener('online', onOnline)
+  document.addEventListener('visibilitychange', onVisibilityChange)
 })
 
 onUnmounted(() => {
+  disposed = true
   stopTimer()
   saver.dispose()
   window.removeEventListener('beforeunload', beforeUnload)
-  socket?.disconnect()
+  window.removeEventListener('online', onOnline)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  live?.stop()
 })
 </script>
 

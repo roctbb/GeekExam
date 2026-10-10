@@ -1,30 +1,16 @@
+from time_utils import utc_iso
 import json
 from flask import Blueprint, jsonify, request
 from models import db, Test, Variant, Question, Attempt
 from auth import teacher_required, current_user_id
-from checkers.registry import VALID_QUESTION_TYPES, CHECK_TYPES
-from checkers.matrix import validate_matrix_question
+from validation import validate_test_payload
 
 tests_bp = Blueprint('tests', __name__)
 
 
 def _parse_and_create_test(data, test=None):
     """Parse JSON dict and populate Test/Variant/Question objects."""
-    total_per_variant = None
-    for v in data.get('variants', []):
-        s = sum(q.get('max_points', 0) for q in v.get('questions', []))
-        if total_per_variant is None:
-            total_per_variant = s
-        elif s != total_per_variant:
-            raise ValueError('Сумма баллов должна быть одинакова во всех вариантах')
-
-    for v in data.get('variants', []):
-        for q in v.get('questions', []):
-            validate_matrix_question(q)
-            if q.get('type') not in VALID_QUESTION_TYPES:
-                raise ValueError(f'Неизвестный тип вопроса: {q.get("type")}')
-            if q.get('check_type') not in CHECK_TYPES:
-                raise ValueError(f'Неизвестный тип проверки: {q.get("check_type")}')
+    validate_test_payload(data)
 
     if test is None:
         test = Test(created_by=current_user_id())
@@ -60,18 +46,11 @@ def _parse_and_create_test(data, test=None):
 
 
 def _update_existing_test_payload(data, test):
+    validate_test_payload(data)
     variants_data = data.get('variants', [])
     variants = list(test.variants)
     if len(variants_data) != len(variants):
         raise ValueError('После начала прохождения нельзя добавлять или удалять варианты')
-
-    total_per_variant = None
-    for vdata in variants_data:
-        s = sum(q.get('max_points', 0) for q in vdata.get('questions', []))
-        if total_per_variant is None:
-            total_per_variant = s
-        elif s != total_per_variant:
-            raise ValueError('Сумма баллов должна быть одинакова во всех вариантах')
 
     for variant, vdata in zip(variants, variants_data):
         questions_data = vdata.get('questions', [])
@@ -81,12 +60,6 @@ def _update_existing_test_payload(data, test):
 
         variant.title = vdata.get('title', variant.title)
         for question, qdata in zip(questions, questions_data):
-            validate_matrix_question(qdata)
-            if qdata.get('type') not in VALID_QUESTION_TYPES:
-                raise ValueError(f'Неизвестный тип вопроса: {qdata.get("type")}')
-            if qdata.get('check_type') not in CHECK_TYPES:
-                raise ValueError(f'Неизвестный тип проверки: {qdata.get("check_type")}')
-
             question.type = qdata['type']
             question.title = qdata['title']
             question.body = qdata.get('body')
@@ -143,7 +116,7 @@ def _test_to_dict(test, include_variants=False):
         'time_limit': test.time_limit,
         'is_active': test.is_active,
         'created_by': test.created_by,
-        'created_at': test.created_at.isoformat() if test.created_at else None,
+        'created_at': utc_iso(test.created_at),
         'variant_count': len(test.variants),
         'attempt_count': len(test.attempts),
     }
@@ -192,7 +165,7 @@ def list_tests():
 @teacher_required
 def create_test():
     data = request.get_json()
-    if not data:
+    if data is None:
         return jsonify({'error': 'JSON required'}), 400
     try:
         test = _parse_and_create_test(data)
@@ -200,6 +173,7 @@ def create_test():
         db.session.commit()
         return jsonify(_test_to_dict(test)), 201
     except (ValueError, KeyError) as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 422
 
 
@@ -215,7 +189,7 @@ def get_test(test_id):
 def update_test(test_id):
     test = Test.query.get_or_404(test_id)
     data = request.get_json()
-    if not data:
+    if data is None:
         return jsonify({'error': 'JSON required'}), 400
 
     has_attempts = Attempt.query.filter_by(test_id=test.id).first() is not None
@@ -227,6 +201,7 @@ def update_test(test_id):
         db.session.commit()
         return jsonify(_test_to_dict(test))
     except (ValueError, KeyError) as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 422
 
 
@@ -244,7 +219,7 @@ def update_test_params(test_id):
 
     time_limit = data.get('time_limit')
     if time_limit is not None:
-        if not isinstance(time_limit, int) or time_limit <= 0:
+        if type(time_limit) is not int or time_limit <= 0:
             return jsonify({'error': 'Лимит времени должен быть положительным целым числом'}), 422
 
     test.title = title
@@ -288,6 +263,10 @@ def activate_test(test_id):
     test = Test.query.get_or_404(test_id)
     if not test.code:
         return jsonify({'error': 'Установите код теста перед запуском'}), 422
+    try:
+        validate_test_payload(_current_test_payload(test))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 422
     test.is_active = True
     db.session.commit()
     return jsonify({'is_active': True})
@@ -329,8 +308,8 @@ def test_attempts(test_id):
             'user_name': a.user.name,
             'variant_id': a.variant_id,
             'variant_title': a.variant.title,
-            'started_at': a.started_at.isoformat() if a.started_at else None,
-            'finished_at': a.finished_at.isoformat() if a.finished_at else None,
+            'started_at': utc_iso(a.started_at),
+            'finished_at': utc_iso(a.finished_at),
             'is_checked': a.is_checked,
             'total_points': a.total_points,
             'max_points': a.max_points,

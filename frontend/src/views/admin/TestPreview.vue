@@ -45,9 +45,9 @@
           :readonly="false"
           :checkResult="null"
           @update:modelValue="onAnswerUpdate"
-          @check="onPreviewCheck"
         />
         </div>
+        <IntermediateCheckButton :question="currentQuestion" @check="onPreviewCheck" />
         <div class="d-flex justify-content-between mt-3">
           <button class="btn btn-outline-secondary btn-sm" :disabled="activeTab === 0" @click="activeTab--">← Назад</button>
           <button class="btn btn-outline-secondary btn-sm" :disabled="activeTab === currentVariant.questions.length - 1" @click="activeTab++">Далее →</button>
@@ -64,6 +64,7 @@ import { useRoute } from 'vue-router'
 import api from '../../api'
 import { isQuestionAnswered } from '../../utils/answers'
 import MarkdownBody from '../../components/MarkdownBody.vue'
+import IntermediateCheckButton from '../../components/IntermediateCheckButton.vue'
 import TextInputQuestion from '../../components/questions/TextInputQuestion.vue'
 import CodeInputQuestion from '../../components/questions/CodeInputQuestion.vue'
 import TrueFalseTableQuestion from '../../components/questions/TrueFalseTableQuestion.vue'

@@ -38,13 +38,11 @@ class CheckReportTests(unittest.TestCase):
             check_state='pending', points=None, check_comment=None,
             attempt=SimpleNamespace(finished_at='finished' if finished else None),
             question=SimpleNamespace(max_points=12, check_type='docker', check_config={'tests': [{'name': 'Первый'}]}))
-        query = Mock()
-        query.filter_by.return_value.with_for_update.return_value.first.return_value = answer
         session, socketio = Mock(), Mock()
         with patch('routes.callbacks._verify_callback_auth', return_value=None), \
              patch('routes.callbacks._is_duplicate_callback', return_value=False), \
              patch('routes.callbacks._mark_callback_processed'), \
-             patch('routes.callbacks.Answer', SimpleNamespace(query=query)), \
+             patch('routes.callbacks.lock_answer', return_value=(answer, answer.attempt)), \
              patch('routes.callbacks.db', SimpleNamespace(session=session)), \
              patch.dict('sys.modules', {'manage': SimpleNamespace(socketio=socketio)}):
             response = app.test_client().post('/api/callback/check', json={

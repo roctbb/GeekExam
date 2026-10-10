@@ -4,7 +4,10 @@
       <h4>Тесты</h4>
       <RouterLink to="/admin/tests/upload" class="btn btn-primary btn-sm">+ Загрузить</RouterLink>
     </div>
-    <div class="table-responsive">
+    <div v-if="error" class="alert alert-danger" role="alert">{{ error }} <button class="btn btn-sm btn-outline-danger" :disabled="loading" @click="loadTests">Повторить</button></div>
+    <div v-if="loading" class="text-center py-4"><div class="spinner-border" /></div>
+    <p v-else-if="!error && !tests.length" class="text-muted">Тестов пока нет. Загрузите первый тест.</p>
+    <div v-else-if="tests.length" class="table-responsive">
       <table class="table table-hover align-middle">
         <thead><tr><th>Название</th><th>Код</th><th>Статус</th><th>Вариантов</th><th>Попыток</th><th></th></tr></thead>
         <tbody>
@@ -40,9 +43,17 @@ import api from '../../api'
 const tests = ref([])
 const deletingId = ref(null)
 
-onMounted(async () => { const { data } = await api.getTests(); tests.value = data })
+const loading = ref(true), error = ref('')
+async function loadTests() {
+  loading.value = true; error.value = ''
+  try { const { data } = await api.getTests(); tests.value = data }
+  catch { error.value = 'Не удалось загрузить тесты. Проверьте соединение и повторите.' }
+  finally { loading.value = false }
+}
+onMounted(loadTests)
 
 async function removeTest(test) {
+  if (deletingId.value !== null) return
   const attemptsText = test.attempt_count
     ? ` Будут удалены все попытки: ${test.attempt_count}.`
     : ''
@@ -55,7 +66,7 @@ async function removeTest(test) {
     tests.value = tests.value.filter((t) => t.id !== test.id)
   } catch (e) {
     const msg = e?.response?.data?.error || 'Не удалось удалить тест'
-    alert(msg)
+    error.value = msg
   } finally {
     deletingId.value = null
   }

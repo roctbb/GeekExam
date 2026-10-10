@@ -13,8 +13,10 @@
     <input v-else
       type="text"
       class="form-control"
+      :aria-label="question.title || 'Текст ответа'"
+      :placeholder="question.ui_config?.placeholder || ''"
       :value="modelValue?.text || ''"
-      :disabled="readonly"
+      :readonly="readonly"
       @input="emit('update:modelValue', { text: $event.target.value })"
     />
     <CheckResult :result="checkResult" :max-points="question.max_points" />

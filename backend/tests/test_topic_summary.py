@@ -55,6 +55,40 @@ class TopicSummaryTest(unittest.TestCase):
         row = _topic_summary(attempt)[0]
         self.assertEqual((row['points'], row['percent'], row['correct']), (0, 0, 0))
 
+    def composite_summary(self, kind, points, partial=True, max_points=10):
+        ui = {'topic': 'Вопрос целиком'}
+        cfg = {'partial_scoring': partial}
+        if kind == 'multi_input':
+            ui['fields'] = [{'name': 'a', 'topic': 'Первая'}, {'name': 'b', 'topic': 'Вторая'}]
+            cfg['answers'] = {'a': 'yes', 'b': 'yes'}
+            value = {'a': 'yes', 'b': 'no'}
+        else:
+            ui['statement_topics' if kind == 'true_false_table' else 'item_topics'] = ['Первая', 'Вторая']
+            cfg['correct'] = [True, True] if kind == 'true_false_table' else ['yes', 'yes']
+            value = {'answers': [True, False] if kind == 'true_false_table' else ['yes', 'no']}
+        question = SimpleNamespace(id=1, title='Question', type=kind, check_type='exact',
+                                   check_config=cfg, ui_config=ui, max_points=max_points)
+        answer = SimpleNamespace(question_id=1, value=value, points=points, check_state='checked')
+        return _topic_summary(SimpleNamespace(variant=SimpleNamespace(questions=[question]), answers=[answer]))
+
+    def test_composite_all_or_nothing_and_overrides_use_recorded_grade(self):
+        for kind in ['multi_input', 'true_false_table', 'choice_table']:
+            for points, partial in [(0, False), (0, True), (10, True)]:
+                with self.subTest(kind=kind, points=points, partial=partial):
+                    rows = self.composite_summary(kind, points, partial)
+                    self.assertEqual(sum(row['points'] for row in rows), points)
+                    self.assertEqual(rows[0]['topic'], 'Вопрос целиком')
+
+    def test_composite_partial_scoring_keeps_field_topics_when_grade_matches(self):
+        for kind in ['multi_input', 'true_false_table', 'choice_table']:
+            rows = self.composite_summary(kind, 5)
+            self.assertEqual({row['topic']: row['points'] for row in rows}, {'Первая': 5, 'Вторая': 0})
+
+    def test_composite_summary_does_not_undo_score_rounding(self):
+        for kind in ['multi_input', 'true_false_table', 'choice_table']:
+            rows = self.composite_summary(kind, 2, max_points=3)
+            self.assertEqual(sum(row['points'] for row in rows), 2)
+
 
 if __name__ == '__main__':
     unittest.main()

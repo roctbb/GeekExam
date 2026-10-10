@@ -107,6 +107,12 @@ body { background: var(--ge-bg); color: var(--ge-text); font-family: 'Inter', sy
 /* Page header */
 .ge-page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; padding-bottom: .75rem; border-bottom: 1px solid #e2e8f0; }
 .ge-page-header h4 { font-weight: 800; margin: 0; }
+.ge-page-header { gap: .75rem; }
+.ge-page-header > .d-flex { flex-wrap: wrap; }
+.ge-attempt-toolbar { position: sticky; top: var(--ge-navbar-height, 60px); z-index: 1010; background: var(--ge-bg); padding-top: .5rem; }
+.ge-attempt-toolbar .ge-page-header { margin-bottom: .5rem; }
+.ge-attempt-toolbar .ge-progress { margin-bottom: .75rem; }
+fieldset { min-width: 0; }
 
 /* Code */
 pre.ge-code { background: #1e293b; color: #e2e8f0; border-radius: 12px; padding: 1rem; font-size: .85rem; overflow-x: auto; border: 1px solid #334155; }
@@ -271,4 +277,8 @@ textarea.ge-code-editor:focus { border-color: var(--ge-primary); box-shadow: 0 0
 @media (max-width: 768px) {
   .ge-tab { width: 34px; height: 34px; font-size: .75rem; border-radius: 10px; }
   .ge-page-header { flex-direction: column; gap: .75rem; align-items: flex-start; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ge-fade-in, .ge-timer.danger { animation: none; }
+  .ge-progress-bar { transition: none; }
 }

@@ -1,5 +1,5 @@
 // Serialize writes to each answer so an older request cannot overwrite a newer edit.
-export function createAnswerSaver(save, onChange = () => {}, delay = 2000) {
+export function createAnswerSaver(save, onChange = () => {}, delay = 750, maxWait = 2000) {
   const entries = new Map()
   let disposed = false
   const notify = () => {
@@ -14,6 +14,8 @@ export function createAnswerSaver(save, onChange = () => {}, delay = 2000) {
     const entry = entries.get(id)
     if (!entry || disposed) return Promise.resolve()
     clearTimeout(entry.timer)
+    clearTimeout(entry.maxTimer)
+    entry.maxTimer = null
     if (entry.inFlight) return entry.inFlight
     entry.error = false
     entry.inFlight = (async () => {
@@ -36,6 +38,7 @@ export function createAnswerSaver(save, onChange = () => {}, delay = 2000) {
 
   return {
     schedule(id, value) {
+      if (disposed) return
       let entry = entries.get(id)
       if (!entry) {
         entry = { version: 0, savedVersion: 0 }
@@ -46,16 +49,21 @@ export function createAnswerSaver(save, onChange = () => {}, delay = 2000) {
       entry.version++
       entry.error = false
       entry.timer = setTimeout(() => { drain(id).catch(() => {}) }, delay)
+      // Continuous typing must not postpone the first write indefinitely.
+      if (!entry.maxTimer) entry.maxTimer = setTimeout(() => { drain(id).catch(() => {}) }, maxWait)
       notify()
     },
     async flush() {
       // Include in-flight writes and retain failed values for retry.
       await Promise.all([...entries.keys()].map(drain))
     },
-    hasPending() { return [...entries.values()].some(e => e.savedVersion < e.version) },
+    hasPending(id) {
+      const values = id === undefined ? [...entries.values()] : [entries.get(id)].filter(Boolean)
+      return values.some(e => e.savedVersion < e.version)
+    },
     dispose() {
       disposed = true
-      for (const entry of entries.values()) clearTimeout(entry.timer)
+      for (const entry of entries.values()) { clearTimeout(entry.timer); clearTimeout(entry.maxTimer) }
     },
   }
 }

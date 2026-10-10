@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const api = axios.create({ baseURL: '/api', withCredentials: true })
+const api = axios.create({ baseURL: '/api', withCredentials: true, timeout: 15000 })
 
 api.interceptors.response.use(
   r => r,
@@ -14,6 +14,7 @@ api.interceptors.response.use(
 
 export default {
   me: () => api.get('/me'),
+  logout: () => api.get('/auth/logout', { baseURL: '' }),
   // Tests (teacher)
   getTests: () => api.get('/tests'),
   createTest: (data) => api.post('/tests', data),

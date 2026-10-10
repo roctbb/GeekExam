@@ -6,14 +6,25 @@
         <RouterLink :to="`/admin/tests/${route.params.id}`" class="btn btn-outline-secondary btn-sm">← К тесту</RouterLink>
       </div>
 
-      <div v-if="error" class="alert alert-danger py-2 small">{{ error }}</div>
-      <div v-if="success" class="alert alert-success py-2 small">{{ success }}</div>
+      <div v-if="error" class="alert alert-danger py-2 small" role="alert">{{ error }} <button v-if="!ready" class="btn btn-sm btn-outline-danger" :disabled="loading" @click="loadTest">Повторить</button></div>
+      <div v-if="success" class="alert alert-success py-2 small" role="status">{{ success }}</div>
+      <div v-if="!ready && loading" class="text-center py-4"><div class="spinner-border" /></div>
+      <div v-if="recovery" class="alert alert-warning" role="alert">
+        Найден несохранённый черновик. Его восстановление заменит загруженные поля редактора; для отправки изменений нажмите «Сохранить».
+        <div class="d-flex gap-2 flex-wrap mt-2">
+          <button class="btn btn-primary btn-sm" @click="restoreDraft">Восстановить черновик</button>
+          <button class="btn btn-outline-secondary btn-sm" @click="discardDraft">Оставить версию с сервера</button>
+        </div>
+      </div>
+      <p v-if="ready && !recovery" class="small" role="status">{{ dirty ? 'Есть несохранённые изменения' : 'Все изменения сохранены' }}</p>
+      <div v-if="draftWarning" class="alert alert-warning" role="alert">{{ draftWarning }}</div>
+      <fieldset v-if="ready" :disabled="loading || !!recovery">
       <div v-if="hasAttempts" class="alert alert-warning py-2 small">
         У теста уже есть прохождения. Можно редактировать существующие вопросы и варианты, но нельзя добавлять или удалять их.
       </div>
 
       <div class="card mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
           <span class="fw-semibold">Параметры теста</span>
           <button class="btn btn-primary btn-sm" :disabled="loading" @click="saveParams">
             <span v-if="loading && savingSection === 'params'" class="spinner-border spinner-border-sm me-1" />
@@ -22,19 +33,19 @@
         </div>
         <div class="card-body">
           <div class="mb-3">
-            <label class="form-label">Название</label>
-            <input v-model.trim="draft.title" type="text" class="form-control" placeholder="Название теста" />
+            <label class="form-label" for="test-title">Название</label>
+            <input id="test-title" v-model.trim="draft.title" type="text" class="form-control" placeholder="Название теста" />
           </div>
 
           <div class="mb-3">
-            <label class="form-label">Описание</label>
-            <textarea v-model="draft.description" class="form-control" rows="4" placeholder="Описание (Markdown)"></textarea>
+            <label class="form-label" for="test-description">Описание</label>
+            <textarea id="test-description" v-model="draft.description" class="form-control" rows="4" placeholder="Описание (Markdown)"></textarea>
           </div>
 
           <div class="mb-0">
-            <label class="form-label">Лимит времени (мин), пусто = без лимита</label>
+            <label class="form-label" for="test-time-limit">Лимит времени (мин), пусто = без лимита</label>
             <input
-              v-model="timeLimitInput"
+              id="test-time-limit" v-model="timeLimitInput"
               type="number"
               min="1"
               class="form-control"
@@ -45,9 +56,9 @@
       </div>
 
       <div class="card">
-        <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
           <span class="fw-semibold">Вопросы и варианты</span>
-          <div class="d-flex gap-2">
+          <div class="d-flex gap-2 flex-wrap">
             <input ref="jsonInput" class="d-none" type="file" accept=".json,application/json" @change="onJsonFile" />
             <button class="btn btn-outline-primary btn-sm" :disabled="loading" @click="chooseJsonFile">Загрузить JSON</button>
             <button class="btn btn-outline-secondary btn-sm" :disabled="hasAttempts" @click="addVariant">+ Вариант</button>
@@ -62,7 +73,7 @@
           <div v-if="!draft.variants.length" class="text-muted">Вариантов нет. Добавьте вариант.</div>
 
           <div v-for="(variant, variantIndex) in draft.variants" :key="variant.localId" class="border rounded p-3 mb-3">
-            <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
               <div class="w-100 me-3">
                 <label class="form-label mb-1">Название варианта</label>
                 <input
@@ -75,7 +86,7 @@
               <button class="btn btn-outline-danger btn-sm mt-4" :disabled="hasAttempts" @click="removeVariant(variantIndex)">Удалить вариант</button>
             </div>
 
-            <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
               <h6 class="mb-0">Вопросы</h6>
               <button class="btn btn-outline-secondary btn-sm" :disabled="hasAttempts" @click="addQuestion(variantIndex)">+ Вопрос</button>
             </div>
@@ -87,7 +98,7 @@
               :key="question.localId"
               class="card mb-3"
             >
-              <div class="card-header d-flex justify-content-between align-items-center py-2">
+              <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
                 <strong>Вопрос {{ questionIndex + 1 }}</strong>
                 <button class="btn btn-outline-danger btn-sm" :disabled="hasAttempts" @click="removeQuestion(variantIndex, questionIndex)">Удалить</button>
               </div>
@@ -95,22 +106,22 @@
               <div class="card-body">
                 <div class="row g-3">
                   <div class="col-md-4">
-                    <label class="form-label">Тип вопроса</label>
-                    <select v-model="question.type" class="form-select">
-                      <option v-for="type in questionTypeOptions" :key="type" :value="type">{{ type }}</option>
+                    <label class="form-label" :for="`question-type-${question.localId}`">Тип вопроса</label>
+                    <select :id="`question-type-${question.localId}`" v-model="question.type" class="form-select">
+                      <option v-for="type in questionTypeOptions" :key="type" :value="type">{{ questionTypeLabels[type] }}</option>
                     </select>
                   </div>
 
                   <div class="col-md-4">
-                    <label class="form-label">Тип проверки</label>
-                    <select v-model="question.check_type" class="form-select">
-                      <option v-for="type in checkTypeOptions" :key="type" :value="type">{{ type }}</option>
+                    <label class="form-label" :for="`question-check_type-${question.localId}`">Тип проверки</label>
+                    <select :id="`question-check_type-${question.localId}`" v-model="question.check_type" class="form-select">
+                      <option v-for="type in checkTypeOptions" :key="type" :value="type">{{ checkTypeLabels[type] }}</option>
                     </select>
                   </div>
 
                   <div class="col-md-2">
-                    <label class="form-label">Макс. баллы</label>
-                    <input v-model="question.max_points" type="number" min="0" class="form-control" />
+                    <label class="form-label" :for="`question-max_points-${question.localId}`">Макс. баллы</label>
+                    <input :id="`question-max_points-${question.localId}`" v-model="question.max_points" type="number" min="0" class="form-control" />
                   </div>
 
                   <div class="col-md-2 d-flex align-items-end">
@@ -121,23 +132,18 @@
                   </div>
 
                   <div class="col-12">
-                    <label class="form-label">Заголовок вопроса</label>
-                    <input v-model="question.title" type="text" class="form-control" placeholder="Например, Задача 1" />
+                    <label class="form-label" :for="`question-title-${question.localId}`">Заголовок вопроса</label>
+                    <input :id="`question-title-${question.localId}`" v-model="question.title" type="text" class="form-control" placeholder="Например, Задача 1" />
                   </div>
 
                   <div class="col-12">
-                    <label class="form-label">Текст задания (Markdown)</label>
-                    <textarea v-model="question.body" class="form-control" rows="4"></textarea>
+                    <label class="form-label" :for="`question-body-${question.localId}`">Текст задания (Markdown)</label>
+                    <textarea :id="`question-body-${question.localId}`" v-model="question.body" class="form-control" rows="4"></textarea>
                   </div>
 
-                  <div class="col-md-6">
-                    <label class="form-label">check_config (JSON)</label>
-                    <textarea v-model="question.check_config_text" class="form-control font-monospace small" rows="8" spellcheck="false"></textarea>
-                  </div>
-
-                  <div class="col-md-6">
-                    <label class="form-label">ui_config (JSON)</label>
-                    <textarea v-model="question.ui_config_text" class="form-control font-monospace small" rows="8" spellcheck="false"></textarea>
+                  <div class="col-12">
+                    <QuestionConfigEditor :type="question.type" :check-type="question.check_type"
+                      v-model:check-config="question.check_config_text" v-model:ui-config="question.ui_config_text" />
                   </div>
                 </div>
               </div>
@@ -145,18 +151,28 @@
           </div>
         </div>
       </div>
+      </fieldset>
     </div>
   </div>
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { useRoute, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import api from '../../api'
+import QuestionConfigEditor from '../../components/QuestionConfigEditor.vue'
+import { useAuthStore } from '../../stores/auth'
+import { createDraftStorage } from '../../utils/drafts'
 
 const route = useRoute()
 
-const loading = ref(false)
+const loading = ref(true)
+const ready = ref(false)
+const recovery = ref(null)
+const draftWarning = ref('')
+const baseline = reactive({ params: '', questions: '' })
+const draftStorage = createDraftStorage(`geekexam:test-editor:${useAuthStore().user.id}:${route.params.id}`)
+let disposed = false
 const savingSection = ref('')
 const error = ref('')
 const success = ref('')
@@ -167,12 +183,66 @@ const uid = ref(1)
 
 const questionTypeOptions = ['text_input', 'code_input', 'true_false_table', 'interactive', 'multi_input', 'choice_table', 'matrix_input']
 const checkTypeOptions = ['exact', 'checker', 'docker', 'ai', 'manual']
+const questionTypeLabels = { text_input: 'Текстовый ответ', code_input: 'Программный код', true_false_table: 'Верно / неверно', interactive: 'Интерактивное задание', multi_input: 'Несколько полей', choice_table: 'Таблица с выбором', matrix_input: 'Матрица' }
+const checkTypeLabels = { exact: 'Сравнение с эталоном', checker: 'Функция проверки', docker: 'Запуск тестов', ai: 'Оценка нейросетью', manual: 'Ручная оценка' }
 
 const draft = reactive({
   title: '',
   description: '',
   variants: [],
 })
+
+function captureDraft() {
+  return {
+    title: draft.title, description: draft.description, timeLimitInput: timeLimitInput.value,
+    variants: draft.variants.map(({ localId, questions, ...variant }) => ({
+      ...variant, questions: questions.map(({ localId, ...question }) => ({ ...question })),
+    })),
+  }
+}
+function paramsSnapshot(value) {
+  return JSON.stringify({ title: value.title, description: value.description, timeLimitInput: value.timeLimitInput })
+}
+const currentParams = computed(() => paramsSnapshot(captureDraft()))
+const currentQuestions = computed(() => JSON.stringify(captureDraft().variants))
+const dirty = computed(() => ready.value && (currentParams.value !== baseline.params || currentQuestions.value !== baseline.questions))
+function rememberDraft() {
+  if (!ready.value || recovery.value) return
+  const ok = dirty.value ? draftStorage.write(captureDraft()) : draftStorage.clear()
+  draftWarning.value = ok ? '' : 'Резервный черновик недоступен. Сохраните изменения перед закрытием страницы.'
+}
+watch([currentParams, currentQuestions, () => baseline.params, () => baseline.questions], rememberDraft, { flush: 'sync' })
+function markSaved(snapshot, section = 'questions') {
+  baseline.params = paramsSnapshot(snapshot)
+  if (section === 'questions') baseline.questions = JSON.stringify(snapshot.variants)
+  rememberDraft()
+}
+function restoreDraft() {
+  const saved = recovery.value
+  draft.title = saved.title
+  draft.description = saved.description
+  timeLimitInput.value = saved.timeLimitInput
+  draft.variants = saved.variants.map(variant => ({ ...variant, localId: nextId(),
+    questions: variant.questions.map(question => ({ ...question, localId: nextId() })),
+  }))
+  recovery.value = null
+  rememberDraft()
+}
+function discardDraft() {
+  if (!confirm('Удалить несохранённый черновик?')) return
+  recovery.value = null
+  draftStorage.clear()
+}
+function beforeLeave() {
+  if (loading.value && ready.value) { error.value = 'Дождитесь завершения сохранения.'; return false }
+  return !dirty.value || confirm('Изменения не отправлены на сервер. Покинуть редактор?')
+}
+function beforeUnload(event) {
+  if (!dirty.value && !(loading.value && ready.value)) return
+  event.preventDefault(); event.returnValue = ''
+}
+onBeforeRouteLeave(beforeLeave)
+onBeforeRouteUpdate(beforeLeave)
 
 function nextId() {
   const id = uid.value
@@ -306,6 +376,8 @@ function toParamsPayload() {
 }
 
 async function save(section) {
+  if (loading.value || !ready.value || recovery.value) return
+  const sentSnapshot = captureDraft()
   error.value = ''
   success.value = ''
   loading.value = true
@@ -318,6 +390,7 @@ async function save(section) {
       const payload = toPayload()
       await api.updateTest(route.params.id, payload)
     }
+    markSaved(sentSnapshot, section)
     success.value = section === 'params' ? 'Параметры теста сохранены' : 'Вопросы сохранены'
   } catch (e) {
     error.value = e.response?.data?.error || e.message || 'Ошибка сохранения'
@@ -342,7 +415,8 @@ function chooseJsonFile() {
 async function onJsonFile(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
-  if (!file) return
+  if (!file || loading.value || !ready.value) return
+  if (dirty.value && !confirm('Загрузка JSON заменит текущие несохранённые изменения. Продолжить?')) return
 
   error.value = ''
   success.value = ''
@@ -353,6 +427,7 @@ async function onJsonFile(event) {
     validateImportedPayload(payload)
     await api.updateTest(route.params.id, payload)
     setDraftFromPayload(payload)
+    markSaved(captureDraft())
     success.value = 'JSON загружен и тест сохранён'
   } catch (e) {
     error.value = e.response?.data?.error || e.message || 'Не удалось загрузить JSON'
@@ -425,12 +500,26 @@ function buildFallbackPayload(test) {
   }
 }
 
-onMounted(async () => {
-  error.value = ''
-  success.value = ''
-  const { data } = await api.getTest(route.params.id)
-  hasAttempts.value = Number(data.attempt_count || 0) > 0
-  const payload = data.source_json || buildFallbackPayload(data)
-  setDraftFromPayload(payload)
-})
+async function loadTest() {
+  if (ready.value) return
+  loading.value = true
+  error.value = ''; success.value = ''
+  try {
+    const { data } = await api.getTest(route.params.id)
+    if (disposed) return
+    hasAttempts.value = Number(data.attempt_count || 0) > 0
+    setDraftFromPayload(data.source_json || buildFallbackPayload(data))
+    baseline.params = paramsSnapshot(captureDraft())
+    baseline.questions = JSON.stringify(captureDraft().variants)
+    const saved = draftStorage.read()
+    if (saved && typeof saved.title === 'string' && Array.isArray(saved.variants)
+        && saved.variants.every(v => Array.isArray(v.questions) && v.questions.every(q => q && typeof q === 'object'))
+        && (paramsSnapshot(saved) !== baseline.params || JSON.stringify(saved.variants) !== baseline.questions)) recovery.value = saved
+    ready.value = true
+  } catch (e) { error.value = e?.response?.data?.error || 'Не удалось загрузить тест. Проверьте соединение и повторите.' }
+  finally { loading.value = false }
+}
+onMounted(() => { loadTest(); window.addEventListener('beforeunload', beforeUnload) })
+onUnmounted(() => { disposed = true; window.removeEventListener('beforeunload', beforeUnload) })
+
 </script>

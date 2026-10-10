@@ -73,3 +73,20 @@ export const interactiveComponents = { 'my-component': MyComponent }
 ```
 
 В JSON теста указать `"type": "interactive", "ui_config": { "component": "my-component" }`.
+
+## Проверки фронтенда
+
+В каталоге `frontend`:
+
+```bash
+npm ci
+npm test
+npx playwright install chromium
+npm run test:browser
+npm run build
+```
+
+Браузерные тесты сами запускают Vite на `127.0.0.1:4178` и подменяют API.
+Они проверяют сохранение и восстановление ответов, истечение таймера, сетевые
+ошибки, обновление результатов, редактор преподавателя и мобильную страницу.
+Интеграция с настоящим сервером и GeekPaste проверяется отдельно.

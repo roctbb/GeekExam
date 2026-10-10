@@ -66,3 +66,31 @@ test('different questions save independently and empty answers are persisted', a
     assert.deepEqual(saved, [[1, { text: 'Исходный' }], [2, { text: '' }]])
   } finally { saver.dispose() }
 })
+
+test('continuous typing is saved within maxWait without waiting for a pause', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const saved = []
+  const saver = createAnswerSaver(async (_, value) => saved.push(value), () => {}, 750, 2000)
+  try {
+    for (let i = 0; i < 4; i++) {
+      saver.schedule(1, { text: String(i) })
+      t.mock.timers.tick(500)
+    }
+    assert.deepEqual(saved, [{ text: '3' }])
+    await saver.flush()
+    assert.equal(saver.hasPending(), false)
+    saver.schedule(1, { text: 'next' })
+    assert.equal(saver.hasPending(1), true)
+    assert.equal(saver.hasPending(2), false)
+  } finally { saver.dispose() }
+})
+
+test('disposing cancels both debounce and maximum-wait timers', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let calls = 0
+  const saver = createAnswerSaver(async () => { calls++ })
+  saver.schedule(1, { text: 'draft' })
+  saver.dispose()
+  t.mock.timers.tick(10000)
+  assert.equal(calls, 0)
+})
