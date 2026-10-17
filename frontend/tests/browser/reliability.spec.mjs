@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { mockPlatform } from './fixtures.mjs'
+import { mockPlatform, openUserMenu } from './fixtures.mjs'
 
 test.beforeEach(async ({ page }) => {
   const errors = []
@@ -13,7 +13,8 @@ test('menu navigation flushes the last edit and keeps the SPA alive', async ({ p
   await page.goto('/attempt/1')
   await page.getByRole('textbox', { name: 'Ответ на вопрос' }).fill('Последняя правка')
   await page.evaluate(() => { window.navigationMarker = 'same page' })
-  await page.getByRole('link', { name: 'Результаты', exact: true }).click()
+  await openUserMenu(page)
+  await page.getByRole('menuitem', { name: 'Мои результаты', exact: true }).click()
   await expect(page).toHaveURL(/\/my-results$/)
   expect(state.saves.at(-1)).toEqual({ text: 'Последняя правка' })
   expect(await page.evaluate(() => window.navigationMarker)).toBe('same page')
@@ -24,7 +25,8 @@ test('failed saves block leaving and a reload can recover the local answer', asy
   state.fail['PUT /api/answers/1'] = { error: 'Нет связи' }
   await page.goto('/attempt/1')
   await page.getByRole('textbox', { name: 'Ответ на вопрос' }).fill('Черновик после сбоя')
-  await page.getByRole('link', { name: 'Результаты', exact: true }).click()
+  await openUserMenu(page)
+  await page.getByRole('menuitem', { name: 'Мои результаты', exact: true }).click()
   await expect(page).toHaveURL(/\/attempt\/1$/)
   await expect(page.getByText('Не удалось сохранить ответы. Повторите сохранение перед выходом.')).toBeVisible()
   page.once('dialog', dialog => dialog.accept())

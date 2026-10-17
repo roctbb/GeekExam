@@ -3,6 +3,7 @@ export async function mockPlatform(page, role = 'student') {
     max_points: 5, check_type: 'exact', check_config: { answer: '42', custom_setting: 'keep' },
     ui_config: {}, allow_intermediate_check: true }
   const state = {
+    user: { id: 1, name: 'Пользователь', role },
     fail: {}, saves: [], checks: 0, finishes: 0, reads: 0, testUpdates: [], onSave: null,
     test: { id: 1, title: 'Проверочный тест', description: '', code: 'ABC', is_active: false, time_limit: null,
       attempt_count: 0, variants: [{ id: 1, title: 'Вариант 1', questions: [question] }] },
@@ -18,7 +19,7 @@ export async function mockPlatform(page, role = 'student') {
     const failure = state.fail[`${method} ${path}`]
     if (failure) { await route.fulfill({ status: failure.status || 503, json: failure }); return }
     const body = method === 'GET' ? null : request.postDataJSON()
-    if (path === '/api/me') return route.fulfill({ json: { id: 1, name: 'Пользователь', role } })
+    if (path === '/api/me') return route.fulfill({ json: state.user })
     if (path === '/api/answers/1' && method === 'PUT') {
       if (state.onSave && await state.onSave(route, body)) return
       state.saves.push(body.value)
@@ -62,4 +63,19 @@ export async function mockPlatform(page, role = 'student') {
     return route.fulfill({ status: 404, json: { error: 'Unknown mock endpoint' } })
   })
   return state
+}
+
+export const userMenuButton = page => page.getByRole('button', { name: /^Меню пользователя:/ })
+
+export async function openUserMenu(page) {
+  const trigger = userMenuButton(page)
+  if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
+  return page.getByRole('menu', { name: 'Меню пользователя' })
+}
+
+export async function switchTheme(page) {
+  const menu = await openUserMenu(page)
+  const theme = menu.getByRole('menuitem', { name: /Включить .* тему/ })
+  await theme.click()
+  await theme.press('Escape')
 }

@@ -12,6 +12,7 @@
         <AppIcon v-else name="play" />
         Начать
       </button>
+      <RouterLink to="/my-results" class="ge-join-results"><AppIcon name="results" />Мои результаты</RouterLink>
     </div>
   </div>
 </template>

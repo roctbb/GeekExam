@@ -27,6 +27,7 @@ def _process_jwt(token):
     session['user_id'] = data['id']
     session['role'] = data['role']
     session['name'] = data['name']
+    session['avatar_url'] = data.get('avatar_url')
 
 
 def login_required(f):

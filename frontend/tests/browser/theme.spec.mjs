@@ -1,8 +1,7 @@
 import { test, expect } from '@playwright/test'
-import { mockPlatform } from './fixtures.mjs'
+import { mockPlatform, switchTheme, userMenuButton } from './fixtures.mjs'
 
 const root = page => page.locator('html')
-const toggle = page => page.getByRole('button', { name: /Включить .* тему/ })
 
 test('system appearance is followed until the user chooses a theme, and the choice survives reload', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light' })
@@ -11,7 +10,7 @@ test('system appearance is followed until the user chooses a theme, and the choi
   await expect(root(page)).toHaveAttribute('data-bs-theme', 'light')
   await page.emulateMedia({ colorScheme: 'dark' })
   await expect(root(page)).toHaveAttribute('data-bs-theme', 'dark')
-  await toggle(page).click()
+  await switchTheme(page)
   await expect(root(page)).toHaveAttribute('data-bs-theme', 'light')
   await page.reload()
   await expect(root(page)).toHaveAttribute('data-bs-theme', 'light')
@@ -19,8 +18,8 @@ test('system appearance is followed until the user chooses a theme, and the choi
   await page.emulateMedia({ colorScheme: 'light' })
   await page.emulateMedia({ colorScheme: 'dark' })
   await expect(root(page)).toHaveAttribute('data-bs-theme', 'light')
-  await toggle(page).click()
-  await page.getByRole('link', { name: 'Результаты', exact: true }).click()
+  await switchTheme(page)
+  await page.getByRole('link', { name: 'Мои результаты', exact: true }).click()
   await expect(root(page)).toHaveAttribute('data-bs-theme', 'dark')
   await page.reload()
   await expect(root(page)).toHaveAttribute('data-bs-theme', 'dark')
@@ -45,7 +44,7 @@ test('theme selection is synchronized between open tabs', async ({ page, context
   await other.emulateMedia({ colorScheme: 'light' })
   await mockPlatform(other)
   await other.goto('/join')
-  await toggle(page).click()
+  await switchTheme(page)
   await expect(root(other)).toHaveAttribute('data-bs-theme', 'dark')
   await other.evaluate(() => localStorage.removeItem('geekexam:theme'))
   await expect(root(page)).toHaveAttribute('data-bs-theme', 'light')
@@ -60,9 +59,9 @@ test('unavailable browser storage does not prevent switching themes', async ({ p
   }))
   await mockPlatform(page)
   await page.goto('/join')
-  await toggle(page).click()
+  await switchTheme(page)
   await expect(root(page)).toHaveAttribute('data-bs-theme', 'dark')
-  await toggle(page).click()
+  await switchTheme(page)
   await expect(root(page)).toHaveAttribute('data-bs-theme', 'light')
   expect(errors).toEqual([])
 })
@@ -80,12 +79,12 @@ test('switching the code editor theme preserves the answer and undo history', as
   await page.goto('/attempt/1')
   const editor = page.locator('.cm-content')
   await editor.fill('print(43)')
-  await toggle(page).click()
+  await switchTheme(page)
   await expect(editor).toHaveText('print(43)')
   await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(27, 35, 48)')
   await editor.press('ControlOrMeta+z')
   await expect(editor).toHaveText('print(42)')
-  await toggle(page).click()
+  await switchTheme(page)
   await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(247, 249, 252)')
   expect(errors).toEqual([])
 })
@@ -111,10 +110,10 @@ test('dark teacher and student surfaces stay readable and fit mobile widths', as
   for (const width of [375, 320]) {
     await page.setViewportSize({ width, height: 900 })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-    await expect(toggle(page)).toBeVisible()
+    await expect(userMenuButton(page)).toBeVisible()
   }
   await page.screenshot({ path: 'test-results/theme-student-dark-mobile.png', fullPage: true, animations: 'disabled' })
-  await toggle(page).click()
+  await switchTheme(page)
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(248, 250, 252)')
   await page.screenshot({ path: 'test-results/theme-student-light-mobile.png', fullPage: true, animations: 'disabled' })
 })

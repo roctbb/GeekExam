@@ -30,7 +30,6 @@ def login():
 def callback():
     token = request.args.get('token')
     next_url = request.args.get('next', FRONTEND_URL)
-    print(f'[auth callback] token={bool(token)}, next={next_url}, all_args={dict(request.args)}')
     if not token:
         abort(403)
     try:
@@ -52,4 +51,5 @@ def logout():
 def me():
     if 'user_id' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
-    return jsonify({'id': current_user_id(), 'role': current_role(), 'name': session.get('name')})
+    return jsonify({'id': current_user_id(), 'role': current_role(), 'name': session.get('name'),
+                    'avatar_url': session.get('avatar_url')})

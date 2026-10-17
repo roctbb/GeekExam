@@ -6,7 +6,7 @@
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import {
   faArrowDown, faArrowLeft, faArrowRight, faArrowUp, faChartColumn,
-  faCheck, faCircleCheck, faCircleHalfStroke, faCircleXmark, faClipboardList,
+  faCheck, faChevronDown, faCircleCheck, faCircleHalfStroke, faCircleXmark, faClipboardList,
   faClock, faEye, faFileArrowUp, faFlagCheckered, faFloppyDisk, faFolderOpen,
   faKey, faMinus, faMoon, faPenToSquare, faPlay, faPlus, faRightFromBracket,
   faRightToBracket, faRotateRight, faStop, faSun, faTrashCan, faTriangleExclamation,
@@ -15,7 +15,7 @@ import {
 // Keep the icon set explicit so the rest of Font Awesome is removed from the build.
 const icons = {
   'arrow-down': faArrowDown, 'arrow-left': faArrowLeft, 'arrow-right': faArrowRight,
-  'arrow-up': faArrowUp, results: faChartColumn, check: faCheck,
+  'arrow-up': faArrowUp, 'chevron-down': faChevronDown, results: faChartColumn, check: faCheck,
   'circle-check': faCircleCheck, 'circle-half-stroke': faCircleHalfStroke,
   'circle-xmark': faCircleXmark, tests: faClipboardList, clock: faClock,
   preview: faEye, upload: faFileArrowUp, finish: faFlagCheckered, save: faFloppyDisk,
