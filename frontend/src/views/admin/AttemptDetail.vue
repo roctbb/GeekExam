@@ -7,10 +7,11 @@
       <div class="d-flex gap-2 align-items-center flex-wrap justify-content-end">
         <button class="btn btn-sm btn-outline-secondary" :disabled="recheckingAll || !canRecheckAttempt" @click="recheckAll">
           <span v-if="recheckingAll" class="spinner-border spinner-border-sm me-1" />
+          <AppIcon v-else name="retry" />
           {{ recheckingAll ? 'Запускаю...' : 'Перепроверить всю работу' }}
         </button>
         <span class="ge-score">{{ attempt.total_points ?? '—' }} / {{ attempt.max_points }}</span>
-        <button class="btn btn-sm btn-outline-danger" :disabled="deleting" @click="del">Удалить</button>
+        <button class="btn btn-sm btn-outline-danger" :disabled="deleting" @click="del"><AppIcon name="delete" />Удалить</button>
       </div>
     </div>
 
@@ -52,7 +53,7 @@
           <pre v-if="q.type === 'code_input'" class="ge-code mt-1">{{ answer(q.id)?.value?.code || '—' }}</pre>
           <div v-else-if="q.type === 'true_false_table'" class="mt-1">
             <span v-if="!answer(q.id)?.value?.answers?.length" class="text-muted">—</span>
-            <span v-for="(v, idx) in (answer(q.id)?.value?.answers || [])" :key="idx" class="me-2 badge bg-light text-dark border ge-answer-badge">
+            <span v-for="(v, idx) in (answer(q.id)?.value?.answers || [])" :key="idx" class="me-2 badge bg-body-tertiary text-body border ge-answer-badge">
               <span class="ge-markdown-inline" v-html="markdownInline(q.ui_config?.statements?.[idx] || idx + 1)" />:
               <strong>{{ v === true ? 'В' : v === false ? 'Н' : '—' }}</strong>
             </span>
@@ -61,7 +62,7 @@
           <MultiInputQuestion v-else-if="q.type === 'multi_input'" :question="q" :modelValue="answer(q.id)?.value" :readonly="true" />
           <div v-else-if="q.type === 'choice_table'" class="mt-1">
             <span v-if="!answer(q.id)?.value?.answers?.length" class="text-muted">—</span>
-            <span v-for="(v, idx) in (answer(q.id)?.value?.answers || [])" :key="idx" class="me-2 badge bg-light text-dark border ge-answer-badge">
+            <span v-for="(v, idx) in (answer(q.id)?.value?.answers || [])" :key="idx" class="me-2 badge bg-body-tertiary text-body border ge-answer-badge">
               <span class="ge-markdown-inline" v-html="markdownInline(q.ui_config?.items?.[idx]?.label || idx + 1)" />:
               <strong><span class="ge-markdown-inline" v-html="markdownInline(optionLabel(q, v))" /></strong>
             </span>
@@ -82,15 +83,15 @@
                 {{ answer(q.id)?.check_state === 'checked' ? scoreStatus(answer(q.id)?.points, q.max_points).label + ' · ' + answer(q.id)?.points + ' / ' + q.max_points + ' б.' : 'Ошибка' }}
               </span>
               <button v-if="attempt.finished_at && isAsyncCheck(q)" class="btn btn-sm btn-outline-secondary" @click="recheck(q.id, answer(q.id).id)">
-                Перепроверить нейронкой
+                <AppIcon name="retry" />Перепроверить нейронкой
               </button>
             </div>
-            <pre v-if="answer(q.id)?.check_comment" class="mb-0 p-2 bg-light rounded small" style="white-space: pre-wrap; word-break: break-word">{{ answer(q.id).check_comment }}</pre>
+            <pre v-if="answer(q.id)?.check_comment" class="mb-0 p-2 bg-body-tertiary rounded small" style="white-space: pre-wrap; word-break: break-word">{{ answer(q.id).check_comment }}</pre>
           </div>
           <div v-else class="d-flex align-items-center gap-2">
             <span class="text-muted small">Не проверено</span>
             <button v-if="attempt.finished_at && isAsyncCheck(q)" class="btn btn-sm btn-outline-secondary" @click="recheck(q.id, answer(q.id).id)">
-              Запустить проверку нейронкой
+              <AppIcon name="play" />Запустить проверку нейронкой
             </button>
           </div>
         </div>
@@ -99,7 +100,7 @@
         <div v-if="attempt.finished_at && (q.check_type === 'manual' || answer(q.id)?.check_state === 'checked')" class="row g-2 align-items-center">
           <div class="col-auto"><input :disabled="gradeFeedback[q.id]?.state === 'saving'" @input="delete gradeFeedback[q.id]" aria-label="Баллы" type="number" class="form-control form-control-sm" style="width:80px" :min="0" :max="q.max_points" v-model.number="grades[q.id].points" /></div>
           <div class="col-12 col-md"><AutoTextarea class="form-control form-control-sm" placeholder="Комментарий" aria-label="Комментарий преподавателя" v-model="grades[q.id].comment" :disabled="gradeFeedback[q.id]?.state === 'saving'" @update:model-value="delete gradeFeedback[q.id]" /></div>
-          <div class="col-auto"><button class="btn btn-sm btn-primary" :disabled="gradeFeedback[q.id]?.state === 'saving'" @click="grade(q.id, answer(q.id).id)">{{ gradeFeedback[q.id]?.state === 'saving' ? 'Сохраняется…' : 'Сохранить' }}</button></div>
+          <div class="col-auto"><button class="btn btn-sm btn-primary" :disabled="gradeFeedback[q.id]?.state === 'saving'" @click="grade(q.id, answer(q.id).id)"><AppIcon name="save" />{{ gradeFeedback[q.id]?.state === 'saving' ? 'Сохраняется…' : 'Сохранить' }}</button></div>
           <div v-if="gradeFeedback[q.id]" class="col-12 small" role="status" :class="gradeFeedback[q.id].state === 'error' ? 'text-danger' : 'text-success'">{{ gradeFeedback[q.id].message }}</div>
         </div>
 

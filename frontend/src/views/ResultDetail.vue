@@ -4,7 +4,7 @@
     <div class="ge-page-header">
       <h4>{{ attempt.test_title }}</h4>
       <span v-if="attempt.is_checked" class="ge-score">{{ attempt.total_points }} / {{ attempt.max_points }}</span>
-      <span v-else class="badge bg-info text-dark fs-6"><span class="spinner-border spinner-border-sm me-1" /> Проверяется</span>
+      <span v-else class="badge bg-info text-dark"><span class="spinner-border spinner-border-sm me-1" /> Проверяется</span>
     </div>
 
     <div v-if="attempt.topic_summary?.length" class="card mb-3">
@@ -57,10 +57,10 @@
         </div>
         <template v-if="q.check_config && answer(q.id)?.check_state === 'checked' && answer(q.id)?.points < q.max_points">
           <div v-if="q.check_type === 'exact' && q.check_config.answer !== undefined" class="ge-check success">
-            ✅ Правильный ответ: <strong>{{ q.check_config.answer }}</strong>
+            <AppIcon name="circle-check" /> Правильный ответ: <strong>{{ q.check_config.answer }}</strong>
           </div>
           <div v-else-if="q.check_type === 'exact' && q.check_config.answers" class="ge-check success">
-            ✅ <span v-for="field in (q.ui_config?.fields || [])" :key="field.name" class="me-2">
+            <AppIcon name="circle-check" /> <span v-for="field in (q.ui_config?.fields || [])" :key="field.name" class="me-2">
               <span class="ge-markdown-inline" v-html="markdownInline(field.label || field.name)" />:
               <strong>{{ q.check_config.answers[field.name] }}</strong>
             </span>

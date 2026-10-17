@@ -4,6 +4,7 @@
       :disabled="busy || (result?.check_state && !['pending', 'error'].includes(result.check_state))"
       @click="$emit('check')">
       <span v-if="busy || result?.check_state === 'checking'" class="spinner-border spinner-border-sm me-1" />
+      <AppIcon v-else name="circle-check" />
       {{ result?.check_state === 'intermediate' ? 'Ответ проверен' : 'Проверить' }}
     </button>
   </div>

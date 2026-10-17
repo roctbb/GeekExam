@@ -1,7 +1,7 @@
 <template>
   <div class="ge-join-card card ge-fade-in">
     <div class="card-body p-4">
-      <div class="ge-join-icon">🚀</div>
+      <div class="ge-join-icon"><AppIcon name="key" /></div>
       <h4 class="fw-bold mb-1">Войти в тест</h4>
       <p class="text-muted small mb-4">Введите код от преподавателя</p>
       <input v-model="code" type="text" class="form-control form-control-lg text-uppercase mb-3"
@@ -9,6 +9,7 @@
       <div v-if="error" class="alert alert-danger py-2 small">{{ error }}</div>
       <button class="btn btn-primary btn-lg w-100" :disabled="loading" @click="join">
         <span v-if="loading" class="spinner-border spinner-border-sm me-1" />
+        <AppIcon v-else name="play" />
         Начать
       </button>
     </div>

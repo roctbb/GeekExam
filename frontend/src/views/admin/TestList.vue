@@ -2,33 +2,36 @@
   <div class="ge-fade-in">
     <div class="ge-page-header">
       <h4>Тесты</h4>
-      <RouterLink to="/admin/tests/upload" class="btn btn-primary btn-sm">+ Загрузить</RouterLink>
+      <RouterLink to="/admin/tests/upload" class="btn btn-primary btn-sm"><AppIcon name="upload" />Загрузить</RouterLink>
     </div>
     <div v-if="error" class="alert alert-danger" role="alert">{{ error }} <button class="btn btn-sm btn-outline-danger" :disabled="loading" @click="loadTests">Повторить</button></div>
     <div v-if="loading" class="text-center py-4"><div class="spinner-border" /></div>
     <p v-else-if="!error && !tests.length" class="text-muted">Тестов пока нет. Загрузите первый тест.</p>
     <div v-else-if="tests.length" class="table-responsive">
-      <table class="table table-hover align-middle">
-        <thead><tr><th>Название</th><th>Код</th><th>Статус</th><th>Вариантов</th><th>Попыток</th><th></th></tr></thead>
+      <table class="table table-hover align-middle ge-tests-table">
+        <thead><tr><th>Название</th><th>Код</th><th>Статус</th><th class="text-center">Вариантов</th><th class="text-center">Попыток</th><th aria-label="Действия"></th></tr></thead>
         <tbody>
           <tr v-for="t in tests" :key="t.id">
             <td class="fw-semibold">{{ t.title }}</td>
-            <td><code v-if="t.code" class="fs-6">{{ t.code }}</code><span v-else class="text-muted">—</span></td>
+            <td><code v-if="t.code" class="ge-access-code">{{ t.code }}</code><span v-else class="text-muted">—</span></td>
             <td><span :class="t.is_active ? 'badge bg-success' : 'badge bg-secondary'">{{ t.is_active ? 'Активен' : 'Стоп' }}</span></td>
-            <td>{{ t.variant_count ?? '—' }}</td>
-            <td>{{ t.attempt_count ?? 0 }}</td>
+            <td class="text-center">{{ t.variant_count ?? '—' }}</td>
+            <td class="text-center">{{ t.attempt_count ?? 0 }}</td>
             <td class="text-end">
-              <RouterLink :to="`/admin/tests/${t.id}`" class="btn btn-sm btn-outline-secondary me-1">Открыть</RouterLink>
-              <RouterLink :to="`/admin/tests/${t.id}/edit`" class="btn btn-sm btn-outline-secondary me-1">Редактировать</RouterLink>
-              <RouterLink :to="`/admin/tests/${t.id}/results`" class="btn btn-sm btn-outline-primary me-1">Результаты</RouterLink>
+              <div class="ge-test-actions">
+              <RouterLink :to="`/admin/tests/${t.id}`" class="btn btn-sm btn-outline-secondary"><AppIcon name="open" />Открыть</RouterLink>
+              <RouterLink :to="`/admin/tests/${t.id}/edit`" class="btn btn-sm btn-outline-secondary"><AppIcon name="edit" />Редактировать</RouterLink>
+              <RouterLink :to="`/admin/tests/${t.id}/results`" class="btn btn-sm btn-outline-primary"><AppIcon name="results" />Результаты</RouterLink>
               <button
                 class="btn btn-sm btn-outline-danger"
                 :disabled="deletingId === t.id"
                 @click="removeTest(t)"
               >
                 <span v-if="deletingId === t.id" class="spinner-border spinner-border-sm me-1" />
+                <AppIcon v-else name="delete" />
                 Удалить
               </button>
+              </div>
             </td>
           </tr>
         </tbody>

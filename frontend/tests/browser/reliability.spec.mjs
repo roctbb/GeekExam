@@ -98,7 +98,7 @@ test('editor guards changes, retains unsaved questions after saving params, and 
   await expect(page.getByText('Параметры теста сохранены')).toBeVisible()
   await expect(page.getByText('Есть несохранённые изменения')).toBeVisible()
   page.once('dialog', dialog => dialog.dismiss())
-  await page.getByRole('link', { name: '← К тесту' }).click()
+  await page.getByRole('link', { name: 'К тесту', exact: true }).click()
   await expect(page).toHaveURL(/\/edit$/)
   page.once('dialog', dialog => dialog.accept())
   await page.reload()

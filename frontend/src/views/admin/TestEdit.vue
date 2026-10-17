@@ -3,7 +3,7 @@
     <div class="col-xl-11">
       <div class="ge-page-header">
         <h4>Редактирование теста</h4>
-        <RouterLink :to="`/admin/tests/${route.params.id}`" class="btn btn-outline-secondary btn-sm">← К тесту</RouterLink>
+        <RouterLink :to="`/admin/tests/${route.params.id}`" class="btn btn-outline-secondary btn-sm"><AppIcon name="arrow-left" />К тесту</RouterLink>
       </div>
 
       <div v-if="error" class="alert alert-danger py-2 small" role="alert">{{ error }} <button v-if="!ready" class="btn btn-sm btn-outline-danger" :disabled="loading" @click="loadTest">Повторить</button></div>
@@ -28,6 +28,7 @@
           <span class="fw-semibold">Параметры теста</span>
           <button class="btn btn-primary btn-sm" :disabled="loading" @click="saveParams">
             <span v-if="loading && savingSection === 'params'" class="spinner-border spinner-border-sm me-1" />
+            <AppIcon v-else name="save" />
             Сохранить параметры
           </button>
         </div>
@@ -60,10 +61,11 @@
           <span class="fw-semibold">Вопросы и варианты</span>
           <div class="d-flex gap-2 flex-wrap">
             <input ref="jsonInput" class="d-none" type="file" accept=".json,application/json" @change="onJsonFile" />
-            <button class="btn btn-outline-primary btn-sm" :disabled="loading" @click="chooseJsonFile">Загрузить JSON</button>
-            <button class="btn btn-outline-secondary btn-sm" :disabled="hasAttempts" @click="addVariant">+ Вариант</button>
+            <button class="btn btn-outline-primary btn-sm" :disabled="loading" @click="chooseJsonFile"><AppIcon name="upload" />Загрузить JSON</button>
+            <button class="btn btn-outline-secondary btn-sm" :disabled="hasAttempts" @click="addVariant"><AppIcon name="plus" />Вариант</button>
             <button class="btn btn-primary btn-sm" :disabled="loading" @click="saveQuestions">
               <span v-if="loading && savingSection === 'questions'" class="spinner-border spinner-border-sm me-1" />
+              <AppIcon v-else name="save" />
               Сохранить вопросы
             </button>
           </div>
@@ -83,12 +85,12 @@
                   :placeholder="`Вариант ${variantIndex + 1}`"
                 />
               </div>
-              <button class="btn btn-outline-danger btn-sm mt-4" :disabled="hasAttempts" @click="removeVariant(variantIndex)">Удалить вариант</button>
+              <button class="btn btn-outline-danger btn-sm mt-4" :disabled="hasAttempts" @click="removeVariant(variantIndex)"><AppIcon name="delete" />Удалить вариант</button>
             </div>
 
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
               <h6 class="mb-0">Вопросы</h6>
-              <button class="btn btn-outline-secondary btn-sm" :disabled="hasAttempts" @click="addQuestion(variantIndex)">+ Вопрос</button>
+              <button class="btn btn-outline-secondary btn-sm" :disabled="hasAttempts" @click="addQuestion(variantIndex)"><AppIcon name="plus" />Вопрос</button>
             </div>
 
             <div v-if="!variant.questions.length" class="text-muted small">В этом варианте пока нет вопросов.</div>
@@ -100,7 +102,7 @@
             >
               <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
                 <strong>Вопрос {{ questionIndex + 1 }}</strong>
-                <button class="btn btn-outline-danger btn-sm" :disabled="hasAttempts" @click="removeQuestion(variantIndex, questionIndex)">Удалить</button>
+                <button class="btn btn-outline-danger btn-sm" :disabled="hasAttempts" @click="removeQuestion(variantIndex, questionIndex)"><AppIcon name="delete" />Удалить</button>
               </div>
 
               <div class="card-body">

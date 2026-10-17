@@ -5,9 +5,9 @@
       <h4>{{ store.attempt.test_title }}</h4>
       <div class="d-flex align-items-center gap-3 flex-wrap">
         <span v-if="timeLeft !== null" class="ge-timer" :class="{ danger: timeLeft < 60 }">
-          ⏱ {{ formatTime(timeLeft) }}
+          <AppIcon name="clock" />{{ formatTime(timeLeft) }}
         </span>
-        <button class="btn btn-danger btn-sm" :disabled="finishing || saveClosed || hasRecovery || !!store.attempt.finished_at" @click="confirmFinish">{{ finishing ? 'Завершаю…' : 'Завершить' }}</button>
+        <button class="btn btn-danger btn-sm" :disabled="finishing || saveClosed || hasRecovery || !!store.attempt.finished_at" @click="confirmFinish"><AppIcon name="finish" />{{ finishing ? 'Завершаю…' : 'Завершить' }}</button>
       </div>
     </div>
 
@@ -19,6 +19,7 @@
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
       <span class="small">Отвечено {{ answeredCount }} из {{ store.attempt.questions.length }}</span>
       <span v-if="saveState !== 'idle'" class="small" role="status" :class="saveState === 'error' ? 'text-danger' : 'text-muted'">
+        <AppIcon v-if="saveState !== 'saving'" :name="saveState === 'saved' ? 'check' : 'warning'" class="me-1" />
         {{ saveState === 'saving' ? 'Сохраняется…' : saveState === 'saved' ? 'Все изменения сохранены' : 'Не удалось сохранить ответ' }}
         <button v-if="saveState === 'error' && !saveClosed" class="btn btn-sm btn-outline-danger ms-2" @click="retrySaves">Повторить сохранение</button>
       </span>
@@ -63,8 +64,8 @@
         <IntermediateCheckButton :question="currentQuestion" :result="currentAnswer" :readonly="answerReadonly"
           :busy="checkingIds.has(currentQuestion.id)" @check="onIntermediateCheck" />
         <div class="d-flex justify-content-between mt-3">
-          <button class="btn btn-outline-secondary btn-sm" :disabled="activeTab === 0" @click="activeTab--">← Назад</button>
-          <button class="btn btn-outline-secondary btn-sm" :disabled="activeTab === store.attempt.questions.length - 1" @click="activeTab++">Далее →</button>
+          <button class="btn btn-outline-secondary btn-sm" :disabled="activeTab === 0" @click="activeTab--"><AppIcon name="arrow-left" />Назад</button>
+          <button class="btn btn-outline-secondary btn-sm" :disabled="activeTab === store.attempt.questions.length - 1" @click="activeTab++">Далее<AppIcon name="arrow-right" class="ge-icon-trailing" /></button>
         </div>
       </div>
     </div>
@@ -348,7 +349,11 @@ function mergeSnapshot(data) {
   for (const answer of data.answers) {
     const local = store.answers[answer.question_id]
     if (local && !saver.hasPending(answer.id) && sameAnswerValue(local.value, answer.value)) {
-      store.updateAnswer(answer.question_id, answer)
+      // The backend keeps an active attempt ungraded (pending). Its HTTP
+      // snapshot must not erase a matching intermediate result from Socket.IO.
+      const preserveResult = !data.finished_at && answer.check_state === 'pending'
+        && ['intermediate', 'error'].includes(local.check_state)
+      if (!preserveResult) store.updateAnswer(answer.question_id, answer)
     }
   }
   if (data.finished_at) showFinished(data)
@@ -394,6 +399,12 @@ async function loadAttempt() {
     room: `attempt_${route.params.id}`,
     fetchSnapshot: async () => (await api.getAttempt(route.params.id)).data,
     applySnapshot: mergeSnapshot,
+    applyAnswerUpdate: payload => {
+      const answer = store.answers[payload?.question_id]
+      if (answer && !saver.hasPending(answer.id) && Object.hasOwn(payload, 'checked_value')) {
+        store.applyWsUpdate(payload)
+      }
+    },
     shouldPoll: () => !store.attempt.finished_at,
   })
   live.start()

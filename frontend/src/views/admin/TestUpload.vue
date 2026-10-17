@@ -3,19 +3,19 @@
     <div class="col-md-8">
       <div class="ge-page-header">
         <h4>Загрузить тест</h4>
-        <RouterLink to="/admin/tests" class="btn btn-outline-secondary btn-sm">← Назад</RouterLink>
+        <RouterLink to="/admin/tests" class="btn btn-outline-secondary btn-sm"><AppIcon name="arrow-left" />Назад</RouterLink>
       </div>
       <div class="card">
         <div class="card-body">
           <label class="form-label fw-semibold">JSON-файл теста</label>
           <input type="file" class="form-control mb-3" accept=".json" @change="onFile" />
           <div v-if="preview" class="mb-3">
-            <div class="ge-check success mb-2">📄 <strong>{{ preview.title }}</strong> — {{ preview.variants?.length }} вариант(ов)</div>
+            <div class="ge-check success mb-2"><AppIcon name="tests" /> <strong>{{ preview.title }}</strong> — {{ preview.variants?.length }} вариант(ов)</div>
             <textarea class="form-control font-monospace small" rows="8" readonly :value="rawJson" />
           </div>
           <div v-if="error" class="alert alert-danger py-2 small">{{ error }}</div>
           <button class="btn btn-primary" :disabled="!preview || loading" @click="upload">
-            <span v-if="loading" class="spinner-border spinner-border-sm me-1" />Загрузить
+            <span v-if="loading" class="spinner-border spinner-border-sm me-1" /><AppIcon v-else name="upload" />Загрузить
           </button>
         </div>
       </div>

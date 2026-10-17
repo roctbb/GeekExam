@@ -5,22 +5,22 @@
     <div class="ge-page-header">
       <h4>{{ test.title }}</h4>
       <div class="d-flex gap-2 flex-wrap">
-        <button v-if="!test.is_active" class="btn btn-success btn-sm" :disabled="!!pending || !test.code" @click="activate">Запустить</button>
-        <button v-else class="btn btn-warning btn-sm" :disabled="!!pending" @click="deactivate">Остановить</button>
-        <RouterLink :to="`/admin/tests/${test.id}/preview`" class="btn btn-outline-primary btn-sm">Просмотр как ученик</RouterLink>
-        <RouterLink :to="`/admin/tests/${test.id}/edit`" class="btn btn-outline-secondary btn-sm">Редактировать</RouterLink>
-        <RouterLink :to="`/admin/tests/${test.id}/results`" class="btn btn-outline-primary btn-sm">Результаты</RouterLink>
-        <button class="btn btn-outline-danger btn-sm" :disabled="!!pending" @click="removeTest">Удалить</button>
+        <button v-if="!test.is_active" class="btn btn-success btn-sm" :disabled="!!pending || !test.code" @click="activate"><AppIcon name="play" />Запустить</button>
+        <button v-else class="btn btn-warning btn-sm" :disabled="!!pending" @click="deactivate"><AppIcon name="stop" />Остановить</button>
+        <RouterLink :to="`/admin/tests/${test.id}/preview`" class="btn btn-outline-primary btn-sm"><AppIcon name="preview" />Просмотр как ученик</RouterLink>
+        <RouterLink :to="`/admin/tests/${test.id}/edit`" class="btn btn-outline-secondary btn-sm"><AppIcon name="edit" />Редактировать</RouterLink>
+        <RouterLink :to="`/admin/tests/${test.id}/results`" class="btn btn-outline-primary btn-sm"><AppIcon name="results" />Результаты</RouterLink>
+        <button class="btn btn-outline-danger btn-sm" :disabled="!!pending" @click="removeTest"><AppIcon name="delete" />Удалить</button>
       </div>
     </div>
     <div class="card mb-4">
       <div class="card-header">Код доступа</div>
       <div class="card-body d-flex align-items-center gap-3 flex-wrap">
-        <code v-if="test.code" class="fs-4 fw-bold">{{ test.code }}</code>
+        <code v-if="test.code" class="ge-access-code ge-access-code-lg">{{ test.code }}</code>
         <span v-else class="text-muted">не задан</span>
         <div class="d-flex gap-2 flex-wrap">
           <input v-model="newCode" :disabled="!!pending" aria-label="Новый код доступа" type="text" class="form-control form-control-sm text-uppercase" style="width:140px" placeholder="Новый код" />
-          <button class="btn btn-sm btn-primary" :disabled="!!pending || !newCode.trim()" @click="saveCode">Сохранить</button>
+          <button class="btn btn-sm btn-primary" :disabled="!!pending || !newCode.trim()" @click="saveCode"><AppIcon name="save" />Сохранить</button>
         </div>
       </div>
     </div>

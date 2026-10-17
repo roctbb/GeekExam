@@ -8,9 +8,9 @@
             {{ variant.title || `Вариант ${i + 1}` }}
           </option>
         </select>
-        <span v-if="test.time_limit" class="ge-timer">⏱ {{ formatTime(test.time_limit * 60) }}</span>
-        <button class="btn btn-danger btn-sm" disabled>Завершить</button>
-        <RouterLink :to="`/admin/tests/${test.id}`" class="btn btn-outline-secondary btn-sm">К тесту</RouterLink>
+        <span v-if="test.time_limit" class="ge-timer"><AppIcon name="clock" />{{ formatTime(test.time_limit * 60) }}</span>
+        <button class="btn btn-danger btn-sm" disabled><AppIcon name="finish" />Завершить</button>
+        <RouterLink :to="`/admin/tests/${test.id}`" class="btn btn-outline-secondary btn-sm"><AppIcon name="arrow-left" />К тесту</RouterLink>
       </div>
     </div>
 
@@ -49,8 +49,8 @@
         </div>
         <IntermediateCheckButton :question="currentQuestion" @check="onPreviewCheck" />
         <div class="d-flex justify-content-between mt-3">
-          <button class="btn btn-outline-secondary btn-sm" :disabled="activeTab === 0" @click="activeTab--">← Назад</button>
-          <button class="btn btn-outline-secondary btn-sm" :disabled="activeTab === currentVariant.questions.length - 1" @click="activeTab++">Далее →</button>
+          <button class="btn btn-outline-secondary btn-sm" :disabled="activeTab === 0" @click="activeTab--"><AppIcon name="arrow-left" />Назад</button>
+          <button class="btn btn-outline-secondary btn-sm" :disabled="activeTab === currentVariant.questions.length - 1" @click="activeTab++">Далее<AppIcon name="arrow-right" class="ge-icon-trailing" /></button>
         </div>
       </div>
     </div>

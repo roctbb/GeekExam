@@ -1,10 +1,17 @@
-// Socket events invalidate the HTTP snapshot. Polling and reconnect/visibility
-// refreshes also recover events missed while the browser was disconnected.
+// Socket events invalidate the HTTP snapshot. Intermediate check results also
+// carry a versioned payload because they are not stored as final grades.
 export function createLiveRefresh({ socket, room, fetchSnapshot, applySnapshot,
+  applyAnswerUpdate = () => {},
   onError = () => {}, shouldPoll = () => true, interval = 5000,
   page = globalThis.document, network = globalThis.window }) {
   let stopped = true, running = null, queued = false, timer = null
-  const events = ['answer_checked', 'attempt_checked', 'attempt_finished']
+  const events = ['attempt_checked', 'attempt_finished']
+
+  function answerChecked(payload) {
+    if (stopped) return
+    applyAnswerUpdate(payload)
+    return refresh()
+  }
 
   function refresh() {
     if (stopped) return Promise.resolve()
@@ -47,6 +54,7 @@ export function createLiveRefresh({ socket, room, fetchSnapshot, applySnapshot,
       if (!stopped) return
       stopped = false
       socket.on('connect', connect)
+      socket.on('answer_checked', answerChecked)
       for (const event of events) socket.on(event, refresh)
       page?.addEventListener('visibilitychange', visible)
       network?.addEventListener('online', refresh)
@@ -59,6 +67,7 @@ export function createLiveRefresh({ socket, room, fetchSnapshot, applySnapshot,
       queued = false
       clearTimeout(timer)
       socket.off('connect', connect)
+      socket.off('answer_checked', answerChecked)
       for (const event of events) socket.off(event, refresh)
       socket.disconnect()
       page?.removeEventListener('visibilitychange', visible)

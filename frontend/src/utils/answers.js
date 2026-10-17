@@ -40,11 +40,11 @@ export function isQuestionAnswered(question, value) {
 }
 
 export function scoreStatus(points, maxPoints) {
-  if (points == null) return { label: 'Не оценено', tone: 'pending', badge: 'bg-secondary', tab: 'answered', icon: '—' }
-  if (maxPoints > 0 && points >= maxPoints) return { label: 'Верно', tone: 'success', badge: 'bg-success', tab: 'correct', icon: '✅' }
-  if (points > 0) return { label: 'Частично', tone: 'partial', badge: 'bg-warning text-dark', tab: 'partial', icon: '◐' }
-  if (maxPoints === 0) return { label: 'Без баллов', tone: 'pending', badge: 'bg-secondary', tab: 'answered', icon: '—' }
-  return { label: 'Неверно', tone: 'error', badge: 'bg-danger', tab: 'wrong', icon: '❌' }
+  if (points == null) return { label: 'Не оценено', tone: 'pending', badge: 'bg-secondary', tab: 'answered', icon: 'minus' }
+  if (maxPoints > 0 && points >= maxPoints) return { label: 'Верно', tone: 'success', badge: 'bg-success', tab: 'correct', icon: 'circle-check' }
+  if (points > 0) return { label: 'Частично', tone: 'partial', badge: 'bg-warning text-dark', tab: 'partial', icon: 'circle-half-stroke' }
+  if (maxPoints === 0) return { label: 'Без баллов', tone: 'pending', badge: 'bg-secondary', tab: 'answered', icon: 'minus' }
+  return { label: 'Неверно', tone: 'error', badge: 'bg-danger', tab: 'wrong', icon: 'circle-xmark' }
 }
 
 export function numberedQuestionTitle(title, index) {

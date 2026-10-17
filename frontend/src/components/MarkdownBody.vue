@@ -11,7 +11,6 @@
 
 <script setup>
 import { computed, ref, watch, onMounted } from 'vue'
-import 'highlight.js/styles/github-dark.css'
 import { renderMarkdown } from '../utils/markdown'
 
 const props = defineProps({
@@ -47,5 +46,5 @@ onMounted(addCopyButtons)
 </script>
 
 <style scoped>
-:deep(.ge-copy-code) { display: block; margin-top: .75rem; background: white; }
+:deep(.ge-copy-code) { display: block; margin-top: .75rem; background: var(--ge-surface); }
 </style>

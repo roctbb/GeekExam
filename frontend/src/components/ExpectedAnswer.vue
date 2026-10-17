@@ -1,5 +1,5 @@
 <template>
-  <section v-if="rows.length || hasReference" class="ge-expected-answer mb-3 p-3 border rounded bg-light">
+  <section v-if="rows.length || hasReference" class="ge-expected-answer mb-3 p-3 border rounded bg-body-tertiary">
     <div class="small fw-semibold mb-1">Ожидаемый ответ</div>
     <div v-if="rows.length">
       <div v-for="(row, index) in rows" :key="index" class="mt-1">

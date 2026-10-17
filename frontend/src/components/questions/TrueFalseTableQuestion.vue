@@ -12,8 +12,8 @@
         <tr v-for="(stmt, i) in statements" :key="i">
           <td>
             <span v-if="hasCorrectAnswer(i)">
-              <span v-if="answers[i] === correct[i]">✅</span>
-              <span v-else>❌</span>
+              <AppIcon :name="answers[i] === correct[i] ? 'circle-check' : 'circle-xmark'" :class="answers[i] === correct[i] ? 'text-success' : 'text-danger'" class="me-1" />
+              <span class="visually-hidden">{{ answers[i] === correct[i] ? 'Ответ верный.' : 'Ответ неверный.' }}</span>
             </span>
             <span class="ge-markdown-inline" v-html="markdownInline(stmt)" />
           </td>
@@ -25,7 +25,7 @@
           >
             <input type="radio" :name="`q${question.id}_${i}`"
               :checked="answers[i] === true" :disabled="readonly" />
-            <div v-if="hasCorrectAnswer(i) && correct[i] === true" class="small fw-semibold mt-1">✓ Правильный ответ</div>
+            <div v-if="hasCorrectAnswer(i) && correct[i] === true" class="small fw-semibold mt-1"><AppIcon name="check" /> Правильный ответ</div>
             <div v-if="readonly && answers[i] === true" class="small mt-1">Ваш ответ</div>
           </td>
           <td
@@ -36,7 +36,7 @@
           >
             <input type="radio" :name="`q${question.id}_${i}`"
               :checked="answers[i] === false" :disabled="readonly" />
-            <div v-if="hasCorrectAnswer(i) && correct[i] === false" class="small fw-semibold mt-1">✓ Правильный ответ</div>
+            <div v-if="hasCorrectAnswer(i) && correct[i] === false" class="small fw-semibold mt-1"><AppIcon name="check" /> Правильный ответ</div>
             <div v-if="readonly && answers[i] === false" class="small mt-1">Ваш ответ</div>
           </td>
         </tr>

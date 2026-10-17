@@ -2,7 +2,7 @@
   <div class="ge-fade-in">
     <div class="ge-page-header">
       <h4>Результаты</h4>
-      <RouterLink :to="`/admin/tests/${$route.params.id}`" class="btn btn-outline-secondary btn-sm">← Назад</RouterLink>
+      <RouterLink :to="`/admin/tests/${$route.params.id}`" class="btn btn-outline-secondary btn-sm"><AppIcon name="arrow-left" />Назад</RouterLink>
     </div>
     <div v-if="actionError" class="alert alert-danger" role="alert">{{ actionError }}</div>
     <div v-if="error" class="alert alert-danger" role="alert">
@@ -17,7 +17,7 @@
           <option value="user_name">Сортировка: по имени</option>
         </select>
         <button class="btn btn-sm btn-outline-secondary" @click="toggleSortDir">
-          {{ sortDir === 'asc' ? '↑ По возрастанию' : '↓ По убыванию' }}
+          <AppIcon :name="sortDir === 'asc' ? 'arrow-up' : 'arrow-down'" />{{ sortDir === 'asc' ? 'По возрастанию' : 'По убыванию' }}
         </button>
       </div>
       <div class="table-responsive">
@@ -32,15 +32,16 @@
             <td>
               <span v-if="!a.finished_at" class="badge bg-warning text-dark">В процессе</span>
               <span v-else-if="!a.is_checked" class="badge bg-info text-dark">Проверяется</span>
-              <span v-else class="ge-score" style="font-size:.8rem;padding:.25rem .7rem">{{ a.total_points }}/{{ a.max_points }}</span>
+              <span v-else class="ge-score">{{ a.total_points }}/{{ a.max_points }}</span>
             </td>
             <td class="text-end">
-              <RouterLink :to="`/admin/attempts/${a.id}`" class="btn btn-sm btn-outline-primary me-1">Детали</RouterLink>
+              <RouterLink :to="`/admin/attempts/${a.id}`" class="btn btn-sm btn-outline-primary me-1"><AppIcon name="open" />Детали</RouterLink>
               <button v-if="a.finished_at" class="btn btn-sm btn-outline-secondary me-1" :disabled="isRechecking(a.id)" @click="recheck(a)">
                 <span v-if="isRechecking(a.id)" class="spinner-border spinner-border-sm me-1" />
+                <AppIcon v-else name="retry" />
                 {{ isRechecking(a.id) ? 'Запуск...' : 'Перепроверить' }}
               </button>
-              <button class="btn btn-sm btn-outline-danger" :disabled="deletingIds.has(a.id)" @click="del(a.id)">Удалить</button>
+              <button class="btn btn-sm btn-outline-danger" :disabled="deletingIds.has(a.id)" @click="del(a.id)"><AppIcon name="delete" />Удалить</button>
             </td>
           </tr>
         </tbody>

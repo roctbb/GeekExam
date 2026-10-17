@@ -8,9 +8,9 @@
     </div>
     <div v-if="loading" class="text-center py-4"><div class="spinner-border" /></div>
     <div v-else-if="!error && attempts.length === 0" class="text-center py-5">
-      <div style="font-size:2.5rem;margin-bottom:.5rem">📝</div>
+      <div class="ge-empty-icon"><AppIcon name="tests" /></div>
       <p class="text-muted">Вы ещё не проходили тестов</p>
-      <RouterLink to="/join" class="btn btn-primary">Войти в тест</RouterLink>
+      <RouterLink to="/join" class="btn btn-primary"><AppIcon name="key" />Войти в тест</RouterLink>
     </div>
     <div v-else-if="attempts.length" class="table-responsive">
       <table class="table table-hover align-middle">
@@ -23,11 +23,11 @@
             <td>
               <span v-if="!a.finished_at" class="badge bg-warning text-dark">В процессе</span>
               <span v-else-if="!a.is_checked" class="badge bg-info text-dark">Проверяется</span>
-              <span v-else class="ge-score" style="font-size:.8rem;padding:.25rem .7rem">{{ a.total_points }}/{{ a.max_points }}</span>
+              <span v-else class="ge-score">{{ a.total_points }}/{{ a.max_points }}</span>
             </td>
             <td class="text-end">
-              <RouterLink v-if="a.finished_at" :to="`/my-results/${a.id}`" class="btn btn-sm btn-outline-primary">Подробнее</RouterLink>
-              <RouterLink v-else :to="`/attempt/${a.id}`" class="btn btn-sm btn-outline-warning">Продолжить</RouterLink>
+              <RouterLink v-if="a.finished_at" :to="`/my-results/${a.id}`" class="btn btn-sm btn-outline-primary"><AppIcon name="open" />Подробнее</RouterLink>
+              <RouterLink v-else :to="`/attempt/${a.id}`" class="btn btn-sm btn-outline-warning"><AppIcon name="play" />Продолжить</RouterLink>
             </td>
           </tr>
         </tbody>

@@ -20,5 +20,5 @@ function cellStyle(value) {
 <style scoped>
 .ge-matrix-display { margin: 0; overflow-x: auto; }
 .ge-matrix-table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
-td { border: 1px solid #929ca8; min-width: 3.6rem; height: 3.1rem; text-align: center; padding: .4rem; }
+td { border: 1px solid var(--ge-control-border); min-width: 3.6rem; height: 3.1rem; text-align: center; padding: .4rem; }
 </style>

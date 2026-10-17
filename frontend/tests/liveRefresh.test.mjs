@@ -72,6 +72,25 @@ test('polling recovers missing socket events and stops once complete', async (t)
   } finally { live.stop() }
 })
 
+test('intermediate payload is delivered before fetching the ungraded HTTP snapshot', async () => {
+  const socket = new Socket(), updates = []
+  const payload = { question_id: 1, check_state: 'intermediate', points: 5, checked_value: { text: '42' } }
+  const live = createLiveRefresh({ socket, room: 'attempt_1', shouldPoll: () => false,
+    fetchSnapshot: async () => 'pending', applySnapshot: state => updates.push(['snapshot', state]),
+    applyAnswerUpdate: result => updates.push(['result', result]) })
+  try {
+    await live.start()
+    updates.length = 0
+    socket.emit('answer_checked', payload)
+    await settled()
+    assert.deepEqual(updates, [['result', payload], ['snapshot', 'pending']])
+    live.stop()
+    socket.emit('answer_checked', payload)
+    assert.equal(updates.length, 2)
+    assert.equal(socket.listenerCount('answer_checked'), 0)
+  } finally { live.stop() }
+})
+
 test('unmount ignores a late response and removes socket/window listeners', async () => {
   const socket = new Socket(), response = deferred(), snapshots = []
   const network = new EventTarget(), page = new EventTarget()
