@@ -89,13 +89,13 @@ small, .small, .form-text { font-size: var(--ge-font-meta); }
 .ge-navbar > .container { flex-wrap: nowrap; gap: var(--ge-space-3); }
 .ge-navbar .navbar-brand { flex-shrink: 0; margin-right: 0; }
 .ge-user-menu { position: relative; min-width: 0; max-width: 24rem; margin-left: auto; }
-.ge-user-trigger { gap: var(--ge-space-2); max-width: 100%; min-height: 40px; padding: .125rem .5rem .125rem .25rem; }
+.ge-user-trigger { --bs-btn-border-width: 0; --bs-btn-hover-color: #f8f9fa; --bs-btn-active-color: #f8f9fa; --bs-btn-focus-box-shadow: none; gap: var(--ge-space-2); max-width: 100%; min-height: 40px; padding: .125rem .5rem .125rem .25rem; }
+.ge-user-trigger:focus-visible { outline: 2px solid var(--ge-primary-light); outline-offset: 2px; }
 .ge-avatar { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,.12); color: #edf0f5; font-size: var(--ge-font-meta); }
 .ge-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
 .ge-user-name { overflow: hidden; text-overflow: ellipsis; }
 .ge-user-trigger > .ge-user-chevron { width: .75em; margin: 0; opacity: .7; }
 .ge-user-panel { position: absolute; top: calc(100% + var(--ge-space-2)); right: 0; z-index: 1050; width: 15rem; max-width: calc(100vw - 1.5rem); max-height: calc(100dvh - 5rem); overflow-y: auto; padding: .375rem; background: var(--ge-surface); color: var(--ge-text); border: 1px solid var(--ge-border); border-radius: var(--ge-radius); box-shadow: 0 8px 24px rgba(0,0,0,.12); }
-.ge-user-menu-heading { padding: .5rem .75rem; color: var(--ge-muted); font-size: var(--ge-font-meta); overflow-wrap: anywhere; }
 .ge-user-menu-item { display: flex; align-items: center; gap: var(--ge-space-3); width: 100%; min-height: 40px; padding: .5rem .75rem; border: 0; border-radius: var(--ge-radius-control); background: transparent; color: var(--ge-text); font: inherit; font-size: var(--ge-font-ui); line-height: 1.4; text-decoration: none; text-align: left; cursor: pointer; transition: background-color .18s ease-out; }
 .ge-user-menu-item > .ge-icon { color: var(--ge-secondary-text); }
 .ge-user-menu-item:hover, .ge-user-menu-item:focus-visible { background: var(--ge-primary-soft); color: var(--ge-text); }

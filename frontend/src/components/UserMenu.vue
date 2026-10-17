@@ -1,6 +1,6 @@
 <template>
   <div ref="root" class="ge-user-menu" @keydown="onKeydown" @focusout="onFocusOut">
-    <button ref="trigger" type="button" class="btn btn-outline-light ge-user-trigger"
+    <button ref="trigger" type="button" class="btn ge-user-trigger"
       :aria-label="`Меню пользователя: ${displayName}`" aria-haspopup="menu"
       :aria-expanded="open" aria-controls="ge-account-menu" :title="displayName"
       @click="toggle" @keydown.down.prevent="show(0)" @keydown.up.prevent="show(-1)">
@@ -13,7 +13,6 @@
       <AppIcon name="chevron-down" class="ge-user-chevron" />
     </button>
     <div v-if="open" id="ge-account-menu" ref="panel" class="ge-user-panel" role="menu" aria-label="Меню пользователя">
-      <div class="ge-user-menu-heading" role="presentation">{{ displayName }}</div>
       <RouterLink v-if="isTeacher" to="/admin/tests" role="menuitem" tabindex="-1" class="ge-user-menu-item" @click="close()">
         <AppIcon name="tests" />Тесты
       </RouterLink>
@@ -57,6 +56,7 @@ const items = () => [...(panel.value?.querySelectorAll('[role="menuitem"]:not(:d
 
 async function show(index = 0) {
   open.value = true
+  if (index === null) return
   await nextTick()
   const available = items()
   available.at(index)?.focus()
@@ -67,7 +67,7 @@ function close(restoreFocus = false) {
   if (restoreFocus) trigger.value?.focus()
 }
 
-function toggle() { if (open.value) close(); else show() }
+function toggle(event) { if (open.value) close(); else show(event.detail === 0 ? 0 : null) }
 function requestLogout() { close(); emit('logout') }
 function onOutside(event) { if (!root.value?.contains(event.target)) close() }
 function onFocusOut(event) { if (!root.value?.contains(event.relatedTarget)) close() }
