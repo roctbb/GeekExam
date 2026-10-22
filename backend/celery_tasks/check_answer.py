@@ -102,7 +102,7 @@ def _complete_check(answer_id, checked_value, points, comment, error=False):
     else:
         answer.points = None
         answer.check_state = 'pending'
-        answer.check_comment = None
+        answer.check_comment = comment if error else None
     attempt_id = attempt.id
     payload = {
         'answer_id': answer.id,

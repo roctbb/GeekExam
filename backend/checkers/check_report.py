@@ -2,6 +2,12 @@ def test_report(data, config):
     """Summarize runner details without disclosing private inputs or expected outputs."""
     comment = data.get('comment') or ''
     details = data.get('details')
+    compilation_errors = [str(item['error']) for item in details or []
+                          if isinstance(item, dict) and item.get('error')
+                          and item.get('error_type') == 'compilation_error'] if isinstance(details, list) else []
+    if compilation_errors or data.get('error_type') == 'compilation_error' or data.get('verdict') == 'compilation_error':
+        diagnostics = '\n'.join(compilation_errors) or comment or data.get('stderr') or ''
+        return 'Ошибка компиляции\n' + str(diagnostics)[:8000]
     if not isinstance(details, list):
         return comment
     tests = config.get('tests', [])

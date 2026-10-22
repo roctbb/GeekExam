@@ -24,6 +24,7 @@ export default {
   deleteTest: (id) => api.delete(`/tests/${id}`),
   activateTest: (id) => api.post(`/tests/${id}/activate`),
   deactivateTest: (id) => api.post(`/tests/${id}/deactivate`),
+  extendTestTime: (id, timeLimit, minutes = 15) => api.post(`/tests/${id}/extend-time`, { minutes, expected_time_limit: timeLimit }),
   setTestCode: (id, code) => api.put(`/tests/${id}/code`, { code }),
   getTestAttempts: (id) => api.get(`/tests/${id}/attempts`),
   // Attempts

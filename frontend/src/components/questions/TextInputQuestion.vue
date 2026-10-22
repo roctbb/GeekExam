@@ -8,6 +8,7 @@
       :label="question.title || 'Текст ответа'"
       :placeholder="question.ui_config?.placeholder || ''"
       :readonly="readonly"
+      :max-length="TEXT_LIMIT"
       @update:model-value="emit('update:modelValue', { text: $event })"
     />
     <input v-else
@@ -17,6 +18,7 @@
       :placeholder="question.ui_config?.placeholder || ''"
       :value="modelValue?.text || ''"
       :readonly="readonly"
+      :maxlength="TEXT_LIMIT"
       @input="emit('update:modelValue', { text: $event.target.value })"
     />
     <CheckResult :result="checkResult" :max-points="question.max_points" />
@@ -26,6 +28,7 @@
 <script setup>
 import CheckResult from '../CheckResult.vue'
 import CodeEditor from '../CodeEditor.vue'
+import { TEXT_LIMIT } from '../../utils/answerLimits'
 defineProps({ question: Object, modelValue: Object, readonly: Boolean, checkResult: Object })
 const emit = defineEmits(['update:modelValue'])
 </script>

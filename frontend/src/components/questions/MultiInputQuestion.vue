@@ -9,7 +9,7 @@
           <th scope="row">{{ row.label }}</th>
           <td v-for="name in row.fields" :key="name">
             <input type="text" class="form-control form-control-sm" :aria-label="fieldLabel(name)" :value="modelValue?.[name] ?? ''"
-              :disabled="readonly" @input="update(name, $event.target.value)" />
+              :maxlength="SHORT_FIELD_LIMIT" :disabled="readonly" @input="update(name, $event.target.value)" />
           </td>
         </tr></tbody>
       </table>
@@ -28,6 +28,7 @@
         class="form-control form-control-sm ge-multi-input-control"
         :value="modelValue?.[field.name] ?? ''"
         :disabled="readonly"
+        :maxlength="SHORT_FIELD_LIMIT"
         @input="update(field.name, $event.target.value)"
       />
     </div>
@@ -39,6 +40,7 @@
 import { computed } from 'vue'
 import CheckResult from '../CheckResult.vue'
 import { renderMarkdown } from '../../utils/markdown'
+import { SHORT_FIELD_LIMIT } from '../../utils/answerLimits'
 
 const props = defineProps({ question: Object, modelValue: Object, readonly: Boolean, checkResult: Object })
 const emit = defineEmits(['update:modelValue'])

@@ -1,11 +1,31 @@
 from time_utils import utc_iso
 import json
+from datetime import datetime
 from flask import Blueprint, jsonify, request
 from models import db, Test, Variant, Question, Attempt
 from auth import teacher_required, current_user_id
 from validation import validate_test_payload
+from attempt_lifecycle import mark_locked_attempt_finished, publish_attempt_finished
 
 tests_bp = Blueprint('tests', __name__)
+
+
+def _time_limit_conflict(test, data):
+    if 'expected_time_limit' in data and data['expected_time_limit'] != test.time_limit:
+        return jsonify({'error': 'Лимит времени уже изменён. Обновите страницу перед сохранением.',
+                        'time_limit': test.time_limit}), 409
+    return None
+
+
+def _sync_source_params(test):
+    try:
+        payload = json.loads(test.source_json) if test.source_json else None
+    except (ValueError, TypeError):
+        payload = None
+    if not isinstance(payload, dict) or not payload:
+        payload = _current_test_payload(test)
+    payload.update(title=test.title, description=test.description, time_limit=test.time_limit)
+    test.source_json = json.dumps(payload, ensure_ascii=False)
 
 
 def _parse_and_create_test(data, test=None):
@@ -187,10 +207,14 @@ def get_test(test_id):
 @tests_bp.route('/api/tests/<int:test_id>', methods=['PUT'])
 @teacher_required
 def update_test(test_id):
-    test = Test.query.get_or_404(test_id)
+    test = Test.query.filter_by(id=test_id).with_for_update().first_or_404()
     data = request.get_json()
     if data is None:
         return jsonify({'error': 'JSON required'}), 400
+
+    conflict = _time_limit_conflict(test, data)
+    if conflict:
+        return conflict
 
     has_attempts = Attempt.query.filter_by(test_id=test.id).first() is not None
     try:
@@ -208,10 +232,13 @@ def update_test(test_id):
 @tests_bp.route('/api/tests/<int:test_id>/params', methods=['PUT'])
 @teacher_required
 def update_test_params(test_id):
-    test = Test.query.get_or_404(test_id)
+    test = Test.query.filter_by(id=test_id).with_for_update().first_or_404()
     data = request.get_json()
     if not data:
         return jsonify({'error': 'JSON required'}), 400
+    conflict = _time_limit_conflict(test, data)
+    if conflict:
+        return conflict
 
     title = (data.get('title') or '').strip()
     if not title:
@@ -226,22 +253,32 @@ def update_test_params(test_id):
     test.description = data.get('description')
     test.time_limit = time_limit
 
-    # Keep source_json in sync so the editor always receives актуальные параметры.
-    source_payload = None
-    if test.source_json:
-        try:
-            source_payload = json.loads(test.source_json)
-        except json.JSONDecodeError:
-            source_payload = None
-    if not source_payload:
-        source_payload = _current_test_payload(test)
-
-    source_payload['title'] = test.title
-    source_payload['description'] = test.description
-    source_payload['time_limit'] = test.time_limit
-    test.source_json = json.dumps(source_payload, ensure_ascii=False)
+    _sync_source_params(test)
 
     db.session.commit()
+    return jsonify(_test_to_dict(test))
+
+
+@tests_bp.route('/api/tests/<int:test_id>/extend-time', methods=['POST'])
+@teacher_required
+def extend_test_time(test_id):
+    test = Test.query.filter_by(id=test_id).with_for_update().first_or_404()
+    data = request.get_json()
+    if not isinstance(data, dict) or type(data.get('minutes')) is not int or data['minutes'] <= 0:
+        return jsonify({'error': 'Укажите положительное целое число дополнительных минут'}), 422
+    if 'expected_time_limit' not in data:
+        return jsonify({'error': 'Обновите страницу перед продлением времени'}), 422
+    conflict = _time_limit_conflict(test, data)
+    if conflict:
+        return conflict
+    if test.time_limit is None:
+        return jsonify({'error': 'У теста нет ограничения времени'}), 422
+    test.time_limit += data['minutes']
+    _sync_source_params(test)
+    db.session.commit()
+    from manage import socketio
+    for (attempt_id,) in db.session.query(Attempt.id).filter_by(test_id=test_id, finished_at=None).all():
+        socketio.emit('time_limit_updated', {'test_id': test_id}, room=f'attempt_{attempt_id}')
     return jsonify(_test_to_dict(test))
 
 
@@ -275,10 +312,18 @@ def activate_test(test_id):
 @tests_bp.route('/api/tests/<int:test_id>/deactivate', methods=['POST'])
 @teacher_required
 def deactivate_test(test_id):
-    test = Test.query.get_or_404(test_id)
+    test = Test.query.filter_by(id=test_id).with_for_update().first_or_404()
     test.is_active = False
+    attempts = Attempt.query.filter_by(test_id=test_id, finished_at=None).order_by(Attempt.id).with_for_update().all()
+    now = datetime.utcnow()
+    finished = []
+    for attempt in attempts:
+        if mark_locked_attempt_finished(attempt, now):
+            finished.append((attempt.id, attempt.finished_at))
     db.session.commit()
-    return jsonify({'is_active': False})
+    for attempt_id, finished_at in finished:
+        publish_attempt_finished(attempt_id, finished_at)
+    return jsonify({'is_active': False, 'finished_attempts': len(finished)})
 
 
 @tests_bp.route('/api/tests/<int:test_id>/code', methods=['PUT'])

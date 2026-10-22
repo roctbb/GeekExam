@@ -8,7 +8,7 @@
         <table class="ge-matrix-input" aria-label="Матрица ответа">
           <tbody><tr v-for="(row, r) in values" :key="r">
             <td v-for="(value, c) in row" :key="c">
-              <input type="text" inputmode="decimal" class="form-control" :value="value" :disabled="readonly"
+              <input type="text" inputmode="decimal" class="form-control" :value="value" :disabled="readonly" :maxlength="SHORT_FIELD_LIMIT"
                 :aria-label="`Строка ${r + 1}, столбец ${c + 1}`"
                 @input="updateCell(r, c, $event.target.value)" @paste="paste($event, r, c)" />
             </td>
@@ -22,7 +22,7 @@
       <label v-for="field in ui.fields" :key="field.name" class="ge-matrix-field">
         <span>{{ field.label || field.name }}</span>
         <input type="text" inputmode="decimal" class="form-control form-control-sm" :value="modelValue?.fields?.[field.name] ?? ''"
-          :disabled="readonly" @input="updateField(field.name, $event.target.value)" />
+          :disabled="readonly" :maxlength="SHORT_FIELD_LIMIT" @input="updateField(field.name, $event.target.value)" />
       </label>
     </div>
     <div v-if="readonly && question.check_config?.matrix" class="mt-3">
@@ -39,6 +39,7 @@ import { computed, ref } from 'vue'
 import MatrixDisplay from '../MatrixDisplay.vue'
 import CheckResult from '../CheckResult.vue'
 import { matrixValues, pasteMatrix } from '../../utils/matrix'
+import { SHORT_FIELD_LIMIT } from '../../utils/answerLimits'
 const props = defineProps({ question: Object, modelValue: Object, readonly: Boolean, checkResult: Object })
 const emit = defineEmits(['update:modelValue'])
 const ui = computed(() => props.question.ui_config || {})

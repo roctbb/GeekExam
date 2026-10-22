@@ -173,7 +173,8 @@ def _attempt_detail(attempt, include_check_config=False):
                 'question_id': a.question_id,
                 'value': a.value,
                 'points': a.points,
-                'check_state': a.check_state,
+                'check_state': ('error' if not attempt.finished_at and a.check_state == 'pending'
+                                and a.check_comment else a.check_state),
                 'check_comment': a.check_comment,
             }
             for a in attempt.answers
@@ -190,7 +191,9 @@ def join_test():
     if not code:
         return jsonify({'error': 'Введите код теста'}), 422
 
-    test = Test.query.filter_by(code=code, is_active=True).first()
+    # Serialize admission with teacher stop: no attempt may start after the
+    # stop transaction has finished all existing attempts.
+    test = Test.query.filter_by(code=code, is_active=True).with_for_update().first()
     if not test:
         return jsonify({'error': 'Тест не найден или не активен'}), 404
 

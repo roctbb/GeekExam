@@ -52,6 +52,7 @@
               class="form-control"
               placeholder="Например, 45"
             />
+            <div class="form-text">Общее время с начала каждой попытки. Например, изменение 55 → 70 добавляет 15 минут.</div>
           </div>
         </div>
       </div>
@@ -179,6 +180,7 @@ const savingSection = ref('')
 const error = ref('')
 const success = ref('')
 const timeLimitInput = ref('')
+let savedTimeLimit = null
 const hasAttempts = ref(false)
 const jsonInput = ref(null)
 const uid = ref(1)
@@ -287,6 +289,7 @@ function setDraftFromPayload(payload) {
   draft.title = payload.title || ''
   draft.description = payload.description || ''
   timeLimitInput.value = payload.time_limit === null || payload.time_limit === undefined ? '' : String(payload.time_limit)
+  savedTimeLimit = payload.time_limit ?? null
 
   draft.variants.splice(0, draft.variants.length)
   ;(payload.variants || []).forEach((variant, index) => {
@@ -387,10 +390,14 @@ async function save(section) {
   try {
     if (section === 'params') {
       const paramsPayload = toParamsPayload()
+      paramsPayload.expected_time_limit = savedTimeLimit
       await api.updateTestParams(route.params.id, paramsPayload)
+      savedTimeLimit = paramsPayload.time_limit
     } else {
       const payload = toPayload()
+      payload.expected_time_limit = savedTimeLimit
       await api.updateTest(route.params.id, payload)
+      savedTimeLimit = payload.time_limit
     }
     markSaved(sentSnapshot, section)
     success.value = section === 'params' ? 'Параметры теста сохранены' : 'Вопросы сохранены'

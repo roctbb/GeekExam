@@ -23,6 +23,7 @@ from celery_tasks.check_answer import (
 from checkers.check_identity import versioned_callback_id
 from validation import validate_answer
 from attempt_lifecycle import finish_locked_attempt
+from answer_limits import SHORT_FIELD_LIMIT, TEXT_LIMIT, CODE_LIMIT, REQUEST_LIMIT
 
 TEST_DATABASE_URL = os.getenv('GEEKEXAM_TEST_DATABASE_URL', 'sqlite://')
 
@@ -338,6 +339,117 @@ class PlatformRegressionTests(unittest.TestCase):
             with self.subTest(kind=kind):
                 validate_answer(value, SimpleNamespace(type=kind, ui_config=ui, check_type='manual'))
 
+    def test_answer_length_limits_reject_oversized_drafts_without_losing_saved_answer(self):
+        for kind, value, limit in [
+            ('text_input', lambda n: {'text': 'a' * n}, TEXT_LIMIT),
+            ('code_input', lambda n: {'code': 'a' * n, 'lang': 'cpp'}, CODE_LIMIT),
+            ('multi_input', lambda n: {'second': 'a' * n}, SHORT_FIELD_LIMIT),
+            ('matrix_input', lambda n: {'matrix': [['a' * n]]}, SHORT_FIELD_LIMIT),
+            ('interactive', lambda n: ['a' * n], CODE_LIMIT),
+        ]:
+            with self.subTest(kind=kind):
+                self.change(question={'type': kind, 'ui_config': {'size': 1}, 'check_type': 'manual'})
+                self.assertEqual(self.client.put('/api/answers/1', json={'value': value(limit)}).status_code, 200)
+                before = self.state().value
+                rejected = self.client.put('/api/answers/1', json={'value': value(limit + 1)})
+                self.assertEqual(rejected.status_code, 422)
+                self.assertIn('символов', rejected.json['error'])
+                self.assertEqual(self.state().value, before)
+        self.assertEqual(self.client.put('/api/answers/1', json={
+            'value': ['x' * REQUEST_LIMIT]}).status_code, 413)
+
+    def test_answer_limits_cover_unknown_fields_and_nested_interactive_data(self):
+        for value in [{'text': 'ok', 'extra': 'x' * (TEXT_LIMIT + 1)},
+                      {'text': '\U0001f600' * (TEXT_LIMIT // 2 + 1)}]:
+            self.assertEqual(self.client.put('/api/answers/1', json={'value': value}).status_code, 422)
+            self.assertEqual(self.state().value, {'text': 'reference'})
+        self.change(question={'type': 'interactive', 'check_type': 'manual'})
+        value = 'ok'
+        for _ in range(22):
+            value = [value]
+        self.assertEqual(self.client.put('/api/answers/1', json={'value': value}).status_code, 422)
+
+    def test_compilation_error_is_visible_via_socket_and_http_then_can_be_retried(self):
+        self.change(question={'type': 'code_input', 'check_type': 'docker'},
+                    answer={'value': {'code': 'broken', 'lang': 'cpp'}, 'check_state': 'checking'})
+        socket = self.socketio.test_client(self.app, flask_test_client=self.client)
+        socket.emit('join', {'room': 'attempt_1'})
+        response = self.client.post('/api/callback/check', json={
+            'callback_id': versioned_callback_id(1, self.state().value), 'status': 'success',
+            'verdict': 'compilation_error', 'error_type': 'compilation_error', 'points': 0, 'max_points': 3,
+            'comment': '0 из 3 тестов пройдено',
+            'details': [{'error_type': 'compilation_error', 'error': "main.cpp:4: expected ';'"}],
+        })
+        self.assertEqual(response.status_code, 200)
+        payload = socket.get_received()[0]['args'][0]
+        self.assertEqual(payload['check_state'], 'error')
+        self.assertIn("expected ';'", payload['check_comment'])
+        snapshot = self.client.get('/api/attempts/1').json['answers'][0]
+        self.assertEqual(snapshot['check_state'], 'error')
+        self.assertIn('Ошибка компиляции', snapshot['check_comment'])
+        self.assertIsNone(snapshot['points'])
+        self.assertEqual(self.state().state, 'pending')
+        self.assertEqual(self.client.post('/api/answers/1/check').status_code, 200)
+        socket.disconnect()
+
+    def test_legacy_error_callback_remains_visible_without_websocket(self):
+        self.change(question={'check_type': 'docker'}, answer={'check_state': 'checking'})
+        self.client.post('/api/callback/check', json={
+            'callback_id': 1, 'status': 'error', 'comment': 'Compilation failed: syntax error'})
+        snapshot = self.client.get('/api/attempts/1').json['answers'][0]
+        self.assertEqual(snapshot['check_state'], 'error')
+        self.assertIn('syntax error', snapshot['check_comment'])
+        self.finish()
+        check_attempt_answers.run(1)
+        self.enqueue_answer.assert_called_with(1)
+
+    def test_extending_55_to_70_adds_exactly_15_minutes_and_cannot_repeat_from_stale_page(self):
+        started = datetime.utcnow() - timedelta(minutes=40)
+        self.change(test={'time_limit': 55}, attempt={'started_at': started})
+        before = self.client.get('/api/attempts/1').json
+        teacher = self.login(1, 'teacher')
+        payload = {'minutes': 15, 'expected_time_limit': 55}
+        self.assertEqual(self.client.post('/api/tests/1/extend-time', json=payload).status_code, 403)
+        response = teacher.post('/api/tests/1/extend-time', json=payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['time_limit'], 70)
+        after = self.client.get('/api/attempts/1').json
+        self.assertEqual(datetime.fromisoformat(after['time_deadline_at']) -
+                         datetime.fromisoformat(before['time_deadline_at']), timedelta(minutes=15))
+        self.assertEqual(after['started_at'], before['started_at'])
+        self.assertIsNone(after['finished_at'])
+        self.assertEqual(teacher.post('/api/tests/1/extend-time', json=payload).status_code, 409)
+        self.assertEqual(teacher.put('/api/tests/1/params', json={
+            'title': 'Stale editor', 'time_limit': 55, 'expected_time_limit': 55}).status_code, 409)
+        self.assertEqual(teacher.get('/api/tests/1').json['source_json']['time_limit'], 70)
+
+    def test_absolute_limit_change_55_to_70_moves_deadline_by_15_minutes(self):
+        self.change(test={'time_limit': 55})
+        before = self.client.get('/api/attempts/1').json['time_deadline_at']
+        response = self.login(1, 'teacher').put('/api/tests/1/params', json={
+            'title': 'Test', 'time_limit': 70, 'expected_time_limit': 55})
+        self.assertEqual(response.status_code, 200)
+        after = self.client.get('/api/attempts/1').json['time_deadline_at']
+        self.assertEqual(datetime.fromisoformat(after) - datetime.fromisoformat(before), timedelta(minutes=15))
+
+    def test_stopping_test_finishes_active_work_and_notifies_student(self):
+        socket = self.socketio.test_client(self.app, flask_test_client=self.client)
+        socket.emit('join', {'room': 'attempt_1'})
+        before = self.state().value
+        response = self.login(1, 'teacher').post('/api/tests/1/deactivate')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['finished_attempts'], 1)
+        self.assertIsNotNone(self.state().finished_at)
+        self.assertEqual(self.state().value, before)
+        self.enqueue_attempt.assert_called_once_with(1)
+        self.assertEqual(socket.get_received()[0]['name'], 'attempt_finished')
+        self.assertEqual(self.client.put('/api/answers/1', json={'value': {'text': 'late'}}).status_code, 422)
+        self.assertEqual(self.login(3).post('/api/join', json={'code': 'TEST'}).status_code, 404)
+        stopped_at = self.state().finished_at
+        self.assertEqual(self.login(1, 'teacher').post('/api/tests/1/deactivate').json['finished_attempts'], 0)
+        self.assertEqual(self.state().finished_at, stopped_at)
+        socket.disconnect()
+
     def test_invalid_imports_are_rejected_and_valid_test_can_be_activated(self):
         teacher = self.login(1, 'teacher')
         valid = {'title': 'New', 'variants': [{'questions': [
@@ -370,6 +482,36 @@ class PlatformRegressionTests(unittest.TestCase):
             test_id = test.id
         self.assertEqual(self.login(1, 'teacher').post(f'/api/tests/{test_id}/activate').status_code, 422)
         self.assertEqual(self.client.post('/api/join', json={'code': 'EMPTY'}).status_code, 422)
+
+    @unittest.skipUnless(TEST_DATABASE_URL.startswith('postgresql'), 'Requires PostgreSQL row locks')
+    def test_stop_waits_for_admitted_student_and_finishes_the_new_attempt(self):
+        locked, release, stopped = Event(), Event(), Event()
+        joining = self.login(3)
+        teacher = self.login(1, 'teacher')
+
+        def choose(variants):
+            locked.set()
+            if not release.wait(5):
+                raise AssertionError('Timed out waiting to admit student')
+            return variants[0]
+
+        def stop():
+            response = teacher.post('/api/tests/1/deactivate')
+            stopped.set()
+            return response
+
+        with patch('routes.attempts.random.choice', side_effect=choose), ThreadPoolExecutor(2) as pool:
+            join_future = pool.submit(joining.post, '/api/join', json={'code': 'TEST'})
+            try:
+                self.assertTrue(locked.wait(5))
+                stop_future = pool.submit(stop)
+                self.assertFalse(stopped.wait(0.15))
+            finally:
+                release.set()
+            self.assertEqual(join_future.result(timeout=5).status_code, 201)
+            self.assertEqual(stop_future.result(timeout=5).json['finished_attempts'], 2)
+        with self.app.app_context():
+            self.assertEqual(Attempt.query.filter_by(finished_at=None).count(), 0)
 
     @unittest.skipUnless(TEST_DATABASE_URL.startswith('postgresql'), 'Requires PostgreSQL row locks')
     def test_finish_waits_for_answer_save_to_commit(self):

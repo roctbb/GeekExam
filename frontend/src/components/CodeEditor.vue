@@ -2,6 +2,7 @@
   <div class="ge-editor">
     <div ref="container" class="ge-editor-surface" />
     <div v-if="!readonly" class="form-text">Tab — отступ, Shift+Tab — убрать отступ. Esc, затем Tab — выйти из редактора.</div>
+    <div v-if="lengthError" class="text-danger small" role="alert">{{ lengthError }}</div>
   </div>
 </template>
 
@@ -17,6 +18,7 @@ import { python } from '@codemirror/lang-python'
 import { javascript } from '@codemirror/lang-javascript'
 import { cpp } from '@codemirror/lang-cpp'
 import { useTheme } from '../composables/useTheme'
+import { CODE_LIMIT } from '../utils/answerLimits'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -25,9 +27,11 @@ const props = defineProps({
   rows: { type: Number, default: 12 },
   label: { type: String, default: 'Ответ' },
   placeholder: { type: String, default: '' },
+  maxLength: { type: Number, default: CODE_LIMIT },
 })
 const emit = defineEmits(['update:modelValue'])
 const container = ref(null)
+const lengthError = ref('')
 const configuration = new Compartment()
 const { isDark } = useTheme()
 const highlighting = syntaxHighlighting(HighlightStyle.define([
@@ -82,6 +86,14 @@ onMounted(() => {
         EditorState.tabSize.of(4),
         keymap.of([indentWithTab]),
         configuration.of(extensions()),
+        EditorState.transactionFilter.of(transaction => {
+          if (!syncing && transaction.docChanged && transaction.newDoc.length > props.maxLength) {
+            lengthError.value = `Не более ${props.maxLength} символов в ответе`
+            return []
+          }
+          if (transaction.docChanged) lengthError.value = ''
+          return transaction
+        }),
         EditorView.updateListener.of(update => {
           if (update.docChanged && !syncing) emit('update:modelValue', update.state.doc.toString())
         }),

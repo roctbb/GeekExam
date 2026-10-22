@@ -146,13 +146,17 @@ def check_callback():
         attempt.is_checked = False
         attempt.total_points = None
 
-    if data.get('status') == 'success':
+    comment = _strip_nul_chars(test_report(data, answer.question.check_config or {})
+                               if answer.question.check_type == 'docker' else data.get('comment'))
+    compilation_error = (data.get('verdict') == 'compilation_error'
+                         or data.get('error_type') == 'compilation_error'
+                         or any(isinstance(item, dict) and item.get('error_type') == 'compilation_error'
+                                for item in data.get('details', []) or []))
+    if data.get('status') == 'success' and not compilation_error:
         max_pts = answer.question.max_points
         paste_max = data.get('max_points', 1) or 1
         paste_pts = data.get('points', 0) or 0
         computed_points = round(max_pts * paste_pts / paste_max)
-        comment = _strip_nul_chars(test_report(data, answer.question.check_config or {})
-                                   if answer.question.check_type == 'docker' else data.get('comment'))
 
         if attempt_finished:
             # Final check: persist score permanently.
@@ -182,7 +186,10 @@ def check_callback():
             answer.check_state = 'error'
         else:
             answer.check_state = 'pending'
-        answer.check_comment = _strip_nul_chars(data.get('comment'))
+            answer.points = None
+        # Keep intermediate failures for HTTP polling/reloads. The database
+        # state stays pending so final submission checks this answer again.
+        answer.check_comment = comment or 'Не удалось проверить ответ. Повторите проверку.'
 
     db.session.commit()
     _mark_callback_processed(data, answer_id)
@@ -193,7 +200,7 @@ def check_callback():
         'answer_id': answer.id,
         'question_id': answer.question_id,
         'points': answer.points,
-        'check_state': answer.check_state,
+        'check_state': answer.check_state if attempt_finished else 'error',
         'check_comment': answer.check_comment,
         'checked_value': checked_value,
     }, room=f'attempt_{answer.attempt_id}')

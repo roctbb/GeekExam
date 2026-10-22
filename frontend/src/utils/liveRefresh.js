@@ -5,7 +5,7 @@ export function createLiveRefresh({ socket, room, fetchSnapshot, applySnapshot,
   onError = () => {}, shouldPoll = () => true, interval = 5000,
   page = globalThis.document, network = globalThis.window }) {
   let stopped = true, running = null, queued = false, timer = null
-  const events = ['attempt_checked', 'attempt_finished']
+  const events = ['attempt_checked', 'attempt_finished', 'time_limit_updated']
 
   function answerChecked(payload) {
     if (stopped) return

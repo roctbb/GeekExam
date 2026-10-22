@@ -24,6 +24,12 @@
         </div>
       </div>
     </div>
+    <div class="card mb-4">
+      <div class="card-body d-flex align-items-center gap-3 flex-wrap">
+        <span>Лимит на одну попытку: <strong>{{ test.time_limit == null ? 'без ограничения' : `${test.time_limit} мин` }}</strong></span>
+        <button v-if="test.time_limit != null" class="btn btn-outline-primary btn-sm" :disabled="!!pending" @click="extendTime">+15 минут</button>
+      </div>
+    </div>
     <div v-for="v in test.variants" :key="v.id" class="mb-4">
       <h6 class="fw-bold mb-2">{{ v.title }}</h6>
       <div class="table-responsive">
@@ -79,7 +85,14 @@ function activate() {
   return runAction('activate', async () => { await api.activateTest(test.value.id); test.value.is_active = true }, 'Тест запущен')
 }
 function deactivate() {
-  return runAction('deactivate', async () => { await api.deactivateTest(test.value.id); test.value.is_active = false }, 'Тест остановлен')
+  if (!confirm('Остановить тест и завершить все текущие попытки? Сохранённые ответы будут отправлены на проверку.')) return
+  return runAction('deactivate', async () => { await api.deactivateTest(test.value.id); test.value.is_active = false }, 'Тест остановлен, текущие попытки завершены')
+}
+function extendTime() {
+  return runAction('extend-time', async () => {
+    const { data } = await api.extendTestTime(test.value.id, test.value.time_limit)
+    test.value.time_limit = data.time_limit
+  }, 'Добавлено 15 минут к лимиту каждой незавершённой попытки')
 }
 function saveCode() {
   return runAction('code', async () => {

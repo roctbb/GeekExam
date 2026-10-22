@@ -1,5 +1,6 @@
 """Validate imported tests and answer drafts before they reach the checkers."""
 from math import isfinite
+from answer_limits import validate_answer_size
 
 from checkers.matrix import is_square, validate_matrix_question
 from checkers.registry import CHECK_TYPES, VALID_QUESTION_TYPES
@@ -10,6 +11,7 @@ def _scalar(value):
 
 
 def validate_answer(value, question):
+    validate_answer_size(value, question)
     # Empty and partially completed drafts are valid answers.
     if value is None:
         return

@@ -1,8 +1,10 @@
+import json
 from flask import Blueprint, jsonify, request, abort
 from models import db
 from auth import api_login_required, teacher_required, current_user_id
 from attempt_lifecycle import lock_answer, finish_if_expired
 from validation import validate_answer
+from answer_limits import REQUEST_LIMIT, validate_answer_size
 
 answers_bp = Blueprint('answers', __name__)
 
@@ -30,17 +32,26 @@ def _strip_nul_chars(value):
 @answers_bp.route('/api/answers/<int:answer_id>', methods=['PUT'])
 @api_login_required
 def save_answer(answer_id):
+    if not request.is_json:
+        return jsonify({'error': 'Требуется JSON с полем value'}), 422
+    raw = request.stream.read(REQUEST_LIMIT + 1)
+    if len(raw) > REQUEST_LIMIT:
+        return jsonify({'error': 'Ответ слишком большой', 'error_code': 'answer_too_large'}), 413
+    try:
+        data = json.loads(raw)
+    except (ValueError, RecursionError):
+        return jsonify({'error': 'Некорректный JSON ответа'}), 422
     answer, attempt = _locked_answer(answer_id)
     if attempt.user_id != current_user_id():
         return jsonify({'error': 'Forbidden'}), 403
     if attempt.finished_at or finish_if_expired(attempt):
         return jsonify({'error': 'Тест уже завершён', 'error_code': 'attempt_finished'}), 422
 
-    data = request.get_json()
     if not isinstance(data, dict) or 'value' not in data:
         return jsonify({'error': 'Требуется объект с полем value'}), 422
-    new_value = _strip_nul_chars(data.get('value'))
     try:
+        validate_answer_size(data['value'], answer.question)
+        new_value = _strip_nul_chars(data['value'])
         validate_answer(new_value, answer.question)
     except ValueError as e:
         return jsonify({'error': str(e)}), 422

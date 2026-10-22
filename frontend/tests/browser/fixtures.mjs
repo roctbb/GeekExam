@@ -51,7 +51,15 @@ export async function mockPlatform(page, role = 'student') {
     if (path === '/api/tests') return route.fulfill({ json: [state.test] })
     if (path === '/api/tests/1/activate' || path === '/api/tests/1/deactivate') {
       state.test.is_active = path.endsWith('/activate')
+      if (!state.test.is_active) state.attempt.finished_at = new Date().toISOString()
       return route.fulfill({ json: { status: 'ok' } })
+    }
+    if (path === '/api/tests/1/extend-time') {
+      if (body.expected_time_limit !== state.test.time_limit) {
+        return route.fulfill({ status: 409, json: { error: 'Лимит времени уже изменён' } })
+      }
+      state.test.time_limit += body.minutes
+      return route.fulfill({ json: state.test })
     }
     if (path === '/api/tests/1/code') { state.test.code = body.code.toUpperCase(); return route.fulfill({ json: { code: state.test.code } }) }
     if (path === '/api/tests/1/params' || (path === '/api/tests/1' && method === 'PUT')) {

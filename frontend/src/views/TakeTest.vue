@@ -56,12 +56,15 @@
       <div class="card-body">
         <div :class="{ 'ge-question-split': currentQuestion.type === 'code_input' && currentQuestion.ui_config?.layout === 'split' }">
         <MarkdownBody class="mb-3 ge-question-condition" :source="currentQuestion.body" :copy-code="currentQuestion.type === 'code_input'" />
-        <component :is="questionComponent(currentQuestion.type)" :key="currentQuestion.id"
+        <div v-if="currentAnswerSizeError" class="alert alert-danger" role="alert">
+          {{ currentAnswerSizeError }}. Сохранённый ответ слишком большой для открытия. Обратитесь к преподавателю.
+        </div>
+        <component v-else :is="questionComponent(currentQuestion.type)" :key="currentQuestion.id"
           :question="currentQuestion" :modelValue="currentAnswer.value"
           :readonly="answerReadonly" :checkResult="currentAnswer"
           @update:modelValue="onAnswerUpdate" />
         </div>
-        <IntermediateCheckButton :question="currentQuestion" :result="currentAnswer" :readonly="answerReadonly"
+        <IntermediateCheckButton :question="currentQuestion" :result="currentAnswer" :readonly="answerReadonly || !!currentAnswerSizeError"
           :busy="checkingIds.has(currentQuestion.id)" @check="onIntermediateCheck" />
         <div class="d-flex justify-content-between mt-3">
           <button class="btn btn-outline-secondary btn-sm" :disabled="activeTab === 0" @click="activeTab--"><AppIcon name="arrow-left" />Назад</button>
@@ -85,6 +88,8 @@ import { isQuestionAnswered, scoreStatus, sameAnswerValue } from '../utils/answe
 import { createAnswerSaver } from '../utils/answerSaver'
 import { createDraftStorage, createAnswerDrafts } from '../utils/drafts'
 import { createLiveRefresh } from '../utils/liveRefresh'
+import { validateAnswerSize } from '../utils/answerLimits'
+import { createAttemptTimer } from '../utils/attemptTimer'
 import IntermediateCheckButton from '../components/IntermediateCheckButton.vue'
 import MarkdownBody from '../components/MarkdownBody.vue'
 import TextInputQuestion from '../components/questions/TextInputQuestion.vue'
@@ -103,8 +108,7 @@ const store = useAttemptStore()
 const activeTab = ref(0)
 const timeLeft = ref(null)
 const finishing = ref(false)
-const timeDeadlineMs = ref(null)
-let serverClockOffsetMs = 0
+const attemptTimer = createAttemptTimer()
 let timerInterval = null, live = null, disposed = false
 const saveState = ref('idle')
 const actionError = ref('')
@@ -134,6 +138,11 @@ let nextFinishRetryAt = 0
 
 const currentQuestion = computed(() => store.attempt?.questions[activeTab.value])
 const currentAnswer = computed(() => store.answers[currentQuestion.value?.id] || {})
+const currentAnswerSizeError = computed(() => {
+  if (!currentQuestion.value) return ''
+  try { validateAnswerSize(currentAnswer.value.value, currentQuestion.value); return '' }
+  catch (error) { return error.message }
+})
 
 const unansweredNumbers = computed(() => (store.attempt?.questions || [])
   .flatMap((q, i) => isQuestionAnswered(q, store.answers[q.id]?.value) ? [] : [i + 1]))
@@ -154,6 +163,8 @@ function formatTime(s) { return `${Math.floor(s/60)}:${(s%60).toString().padStar
 
 function onAnswerUpdate(value) {
   if (answerReadonly.value) return
+  try { validateAnswerSize(value, currentQuestion.value) }
+  catch (error) { actionError.value = error.message; return }
   const questionId = currentQuestion.value.id
   const prev = currentAnswer.value
 
@@ -278,6 +289,9 @@ function restoreDrafts() {
   for (const [id, entry] of Object.entries(entries)) {
     const answer = Object.values(store.answers).find(a => String(a.id) === id)
     if (!answer) continue
+    const question = store.attempt.questions.find(q => q.id === answer.question_id)
+    try { validateAnswerSize(entry.value, question) }
+    catch (error) { actionError.value = error.message; continue }
     store.updateAnswer(answer.question_id, { value: entry.value, check_state: 'pending', points: null, check_comment: null })
     if (!saveClosed.value && !store.attempt.finished_at && timeLeft.value !== 0) saver.schedule(answer.id, entry.value)
   }
@@ -303,41 +317,13 @@ function openClosedResults() {
 }
 
 function syncTimerFromAttempt(attempt) {
-  if (attempt.finished_at) {
-    timeLeft.value = null
-    timeDeadlineMs.value = null
-    return
-  }
-
-  if (!attempt.time_deadline_at && attempt.time_left !== null) {
-    timeDeadlineMs.value = Date.now() + Math.max(0, attempt.time_left || 0) * 1000
-    serverClockOffsetMs = 0
-    updateTimeLeft()
-    return
-  }
-
-  if (!attempt.time_deadline_at) {
-    timeLeft.value = null
-    timeDeadlineMs.value = null
-    return
-  }
-
-  const deadlineMs = Date.parse(attempt.time_deadline_at)
-  const serverNowMs = Date.parse(attempt.server_time)
-  if (Number.isNaN(deadlineMs) || Number.isNaN(serverNowMs)) {
-    timeDeadlineMs.value = Date.now() + Math.max(0, attempt.time_left || 0) * 1000
-    serverClockOffsetMs = 0
-  } else {
-    timeDeadlineMs.value = deadlineMs
-    serverClockOffsetMs = serverNowMs - Date.now()
-  }
+  attemptTimer.sync(attempt)
   updateTimeLeft()
 }
 
 function updateTimeLeft() {
-  if (!timeDeadlineMs.value || finishing.value) return
-  const serverNowMs = Date.now() + serverClockOffsetMs
-  const remaining = Math.max(0, Math.ceil((timeDeadlineMs.value - serverNowMs) / 1000))
+  if (finishing.value) return
+  const remaining = attemptTimer.remaining()
   timeLeft.value = remaining
   if (remaining === 0 && !autoFinishAttempted && Date.now() >= nextFinishRetryAt) { autoFinishAttempted = true; doFinish() }
 }
@@ -370,7 +356,8 @@ function onVisibilityChange() {
 
 function startTimer(attempt) {
   syncTimerFromAttempt(attempt)
-  if (timeDeadlineMs.value) timerInterval = setInterval(updateTimeLeft, 1000)
+  stopTimer()
+  timerInterval = setInterval(updateTimeLeft, 1000)
 }
 
 function stopTimer() {
