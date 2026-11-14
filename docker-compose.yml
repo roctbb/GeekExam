@@ -31,6 +31,12 @@ services:
     volumes:
       - executor_data:/app/executor-data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; from celery_app import celery; replies = celery.control.inspect(destination=['celery@' + socket.gethostname()], timeout=2).ping(); raise SystemExit(0 if replies else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   celery_beat:
     build: ./backend
