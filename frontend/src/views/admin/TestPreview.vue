@@ -39,15 +39,19 @@
         <div :class="{ 'ge-question-split': currentQuestion.type === 'code_input' && currentQuestion.ui_config?.layout === 'split' }">
         <MarkdownBody class="mb-3 ge-question-condition" :source="currentQuestion.body" :copy-code="currentQuestion.type === 'code_input'" />
         <component
-          :is="questionComponent(currentQuestion.type)" :key="currentQuestion.id"
-          :question="currentQuestion"
+          :is="usesSubmission(currentQuestion) ? SubmissionAnswer : questionComponent(currentQuestion.type)" :key="currentQuestion.id"
+          :question="previewQuestion" :preview="true"
           :modelValue="answers[currentQuestion.id]"
           :readonly="false"
           :checkResult="null"
           @update:modelValue="onAnswerUpdate"
         />
         </div>
-        <IntermediateCheckButton :question="currentQuestion" @check="onPreviewCheck" />
+        <div class="d-flex flex-wrap align-items-start gap-2">
+          <IntermediateCheckButton :question="currentQuestion" @check="onPreviewCheck" />
+          <ResetTemplateButton v-if="currentQuestion.type === 'code_input'" :question="currentQuestion"
+            :model-value="answers[currentQuestion.id]" @update:modelValue="onAnswerUpdate" />
+        </div>
         <div class="d-flex justify-content-between mt-3">
           <button class="btn btn-outline-secondary btn-sm" :disabled="activeTab === 0" @click="activeTab--"><AppIcon name="arrow-left" />Назад</button>
           <button class="btn btn-outline-secondary btn-sm" :disabled="activeTab === currentVariant.questions.length - 1" @click="activeTab++">Далее<AppIcon name="arrow-right" class="ge-icon-trailing" /></button>
@@ -64,7 +68,9 @@ import { useRoute } from 'vue-router'
 import api from '../../api'
 import { isQuestionAnswered } from '../../utils/answers'
 import MarkdownBody from '../../components/MarkdownBody.vue'
+import SubmissionAnswer from '../../components/SubmissionAnswer.vue'
 import IntermediateCheckButton from '../../components/IntermediateCheckButton.vue'
+import ResetTemplateButton from '../../components/ResetTemplateButton.vue'
 import TextInputQuestion from '../../components/questions/TextInputQuestion.vue'
 import CodeInputQuestion from '../../components/questions/CodeInputQuestion.vue'
 import TrueFalseTableQuestion from '../../components/questions/TrueFalseTableQuestion.vue'
@@ -90,6 +96,13 @@ const answers = reactive({})
 
 const currentVariant = computed(() => test.value?.variants?.[activeVariant.value] || null)
 const currentQuestion = computed(() => currentVariant.value?.questions?.[activeTab.value] || null)
+const usesSubmission=q=>!!q && ['ai','docker','manual'].includes(q.check_type)
+const previewQuestion=computed(()=>{
+  const q=currentQuestion.value
+  if(!usesSubmission(q))return q
+  const config=q.check_config || {},lang=config.lang || (q.check_type==='docker'?'python':'text')
+  return {...q,submission_config:{...config,lang,allowed_languages:config.allowed_languages || [lang],submission_modes:config.submission_modes || (q.type==='code_input'?['files','code','project','repository']:['text','files'])}}
+})
 const progressPct = computed(() => {
   const questions = currentVariant.value?.questions || []
   if (!questions.length) return 0

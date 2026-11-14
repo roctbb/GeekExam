@@ -4,6 +4,7 @@ from answer_limits import validate_answer_size
 
 from checkers.matrix import is_square, validate_matrix_question
 from checkers.registry import CHECK_TYPES, VALID_QUESTION_TYPES
+from checkers.scoring import score_step
 
 
 def _scalar(value):
@@ -91,6 +92,9 @@ def validate_test_payload(data):
             if 'allow_intermediate_check' in question and type(question['allow_intermediate_check']) is not bool:
                 raise ValueError('allow_intermediate_check должен быть логическим значением')
             cfg = question.get('check_config') or {}
+            score_step(cfg)
+            from executor_validation import validate_executor_config
+            validate_executor_config(question)
             if check_type == 'exact':
                 if kind == 'multi_input' and (not isinstance(cfg.get('answers'), dict) or not cfg['answers']):
                     raise ValueError('multi_input: требуется непустой объект answers с эталонами')

@@ -6,14 +6,14 @@ from routes.auth import auth_bp
 from routes.tests import tests_bp
 from routes.attempts import attempts_bp
 from routes.answers import answers_bp
-from routes.callbacks import callbacks_bp
+from routes.executor import executor_bp
 from socket_events import register_socket_handlers
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(tests_bp)
 app.register_blueprint(attempts_bp)
 app.register_blueprint(answers_bp)
-app.register_blueprint(callbacks_bp)
+app.register_blueprint(executor_bp)
 
 
 register_socket_handlers(socketio)

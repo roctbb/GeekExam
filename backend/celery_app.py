@@ -5,7 +5,7 @@ celery = Celery(
     'geekexam',
     broker=CELERY_BROKER,
     backend=CELERY_BROKER,
-    include=['celery_tasks.check_answer'],
+    include=['celery_tasks.check_answer', 'celery_tasks.execution'],
 )
 
 celery.conf.update(
@@ -14,7 +14,9 @@ celery.conf.update(
     accept_content=['json'],
     timezone='Europe/Moscow',
     task_default_queue='auditor_queue',
+    worker_prefetch_multiplier=1,
     beat_schedule={
+        'recover-execution-outbox': {'task': 'celery_tasks.execution.recover_executions', 'schedule': 60.0},
         'finish-expired-attempts': {
             'task': 'celery_tasks.check_answer.finish_expired_attempts',
             'schedule': 60.0,

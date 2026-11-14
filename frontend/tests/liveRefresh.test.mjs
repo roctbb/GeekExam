@@ -108,3 +108,20 @@ test('unmount ignores a late response and removes socket/window listeners', asyn
   assert.equal(socket.listenerCount('connect'), 0)
   assert.equal(socket.listenerCount('attempt_checked'), 0)
 })
+
+// Native execution status is event driven, including recovery from errors.
+test('execution creation refreshes without a polling timer after a failed snapshot', async t => {
+  t.mock.timers.enable({apis:['setTimeout']})
+  const socket=new Socket(),snapshots=[]
+  let requests=0,failed=true
+  const live=createLiveRefresh({socket,room:'attempt_1',shouldPoll:()=>false,pollOnError:false,
+    fetchSnapshot:async()=>{requests++;if(failed)throw new Error('offline');return 'new execution'},
+    applySnapshot:data=>snapshots.push(data)})
+  try {
+    await live.start();const before=requests
+    t.mock.timers.tick(60000);await settled();assert.equal(requests,before)
+    failed=false;socket.emit('execution_created');await settled()
+    assert.deepEqual(snapshots,['new execution'])
+    live.stop();assert.equal(socket.listenerCount('execution_created'),0)
+  } finally {live.stop()}
+})

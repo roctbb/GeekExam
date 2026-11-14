@@ -2,6 +2,7 @@
   <div class="ge-fade-in">
     <div class="ge-page-header">
       <h4>Мои результаты</h4>
+      <button type="button" class="btn btn-sm btn-outline-secondary" :disabled="refreshing" @click="refresh">Обновить</button>
     </div>
     <div v-if="error" class="alert alert-danger" role="alert">
       {{ error }} <button class="btn btn-sm btn-outline-danger" :disabled="refreshing" @click="refresh">Повторить</button>
@@ -38,9 +39,10 @@
 
 <script setup>
 import api from '../api'
+import {useAuthStore} from '../stores/auth'
 import { useResultList } from '../composables/useResultList'
 import { formatDateTime as fmt } from '../utils/dates'
 
-const { attempts, loading, refreshing, error, refresh } = useResultList(api.myAttempts)
+const { attempts, loading, refreshing, error, refresh } = useResultList(api.myAttempts, `user_${useAuthStore().user.id}`)
 
 </script>

@@ -1,6 +1,7 @@
 import re
 import unicodedata
 from checkers.matrix import check_matrix
+from checkers.scoring import round_points
 
 
 def normalize_text(value, check_config):
@@ -39,7 +40,7 @@ class ExactChecker:
                 if got == exp:
                     right += 1
             if check_config.get('partial_scoring', True):
-                return round(max_points * right / len(correct)), f'{right} из {len(correct)} верно'
+                return round_points(max_points * right / len(correct), check_config), f'{right} из {len(correct)} верно'
             return (max_points if right == len(correct) else 0), f'{right} из {len(correct)} верно'
 
         # true_false_table
@@ -50,7 +51,7 @@ class ExactChecker:
                 return 0, 'Неверное количество ответов'
             right = sum(1 for a, b in zip(given, correct) if a == b)
             if check_config.get('partial_scoring', True):
-                points = round(max_points * right / len(correct))
+                points = round_points(max_points * right / len(correct), check_config)
                 return points, f'{right} из {len(correct)} верно'
             else:
                 return (max_points if right == len(correct) else 0), f'{right} из {len(correct)} верно'

@@ -2,7 +2,7 @@
 // carry a versioned payload because they are not stored as final grades.
 export function createLiveRefresh({ socket, room, fetchSnapshot, applySnapshot,
   applyAnswerUpdate = () => {},
-  onError = () => {}, shouldPoll = () => true, interval = 5000,
+  onError = () => {}, shouldPoll = () => true, pollOnError = true, interval = 5000,
   page = globalThis.document, network = globalThis.window }) {
   let stopped = true, running = null, queued = false, timer = null
   const events = ['attempt_checked', 'attempt_finished', 'time_limit_updated']
@@ -32,7 +32,7 @@ export function createLiveRefresh({ socket, room, fetchSnapshot, applySnapshot,
           if (!stopped && !queued) onError(error)
         }
       } while (!stopped && queued)
-      if (!stopped && (failed || shouldPoll())) timer = setTimeout(refresh, interval)
+      if (!stopped && ((failed && pollOnError) || shouldPoll())) timer = setTimeout(refresh, interval)
     }).finally(() => { running = null })
     return running
   }
@@ -55,6 +55,7 @@ export function createLiveRefresh({ socket, room, fetchSnapshot, applySnapshot,
       stopped = false
       socket.on('connect', connect)
       socket.on('answer_checked', answerChecked)
+      socket.on('execution_created', refresh)
       for (const event of events) socket.on(event, refresh)
       page?.addEventListener('visibilitychange', visible)
       network?.addEventListener('online', refresh)
@@ -68,6 +69,7 @@ export function createLiveRefresh({ socket, room, fetchSnapshot, applySnapshot,
       clearTimeout(timer)
       socket.off('connect', connect)
       socket.off('answer_checked', answerChecked)
+      socket.off('execution_created', refresh)
       for (const event of events) socket.off(event, refresh)
       socket.disconnect()
       page?.removeEventListener('visibilitychange', visible)

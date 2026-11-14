@@ -7,7 +7,7 @@
         <span v-if="timeLeft !== null" class="ge-timer" :class="{ danger: timeLeft < 60 }">
           <AppIcon name="clock" />{{ formatTime(timeLeft) }}
         </span>
-        <button class="btn btn-danger btn-sm" :disabled="finishing || saveClosed || hasRecovery || !!store.attempt.finished_at" @click="confirmFinish"><AppIcon name="finish" />{{ finishing ? 'Завершаю…' : 'Завершить' }}</button>
+        <button class="btn btn-danger btn-sm" :disabled="uploading || finishing || saveClosed || hasRecovery || !!store.attempt.finished_at" @click="confirmFinish"><AppIcon name="finish" />{{ finishing ? 'Завершаю…' : 'Завершить' }}</button>
       </div>
     </div>
 
@@ -40,7 +40,7 @@
 
     <!-- Question tabs -->
     <div class="ge-question-tabs">
-      <button v-for="(q, i) in store.attempt.questions" type="button" :aria-label="`Вопрос ${i + 1}`" :aria-current="activeTab === i ? 'step' : undefined" :key="q.id"
+      <button v-for="(q, i) in store.attempt.questions" type="button" :aria-label="`Вопрос ${i + 1}`" :aria-current="activeTab === i ? 'step' : undefined" :key="q.id" :disabled="uploading"
         class="ge-tab" :class="[activeTab === i ? 'active' : '', tabClass(q)]"
         @click="activeTab = i">
         {{ i + 1 }}
@@ -59,16 +59,21 @@
         <div v-if="currentAnswerSizeError" class="alert alert-danger" role="alert">
           {{ currentAnswerSizeError }}. Сохранённый ответ слишком большой для открытия. Обратитесь к преподавателю.
         </div>
-        <component v-else :is="questionComponent(currentQuestion.type)" :key="currentQuestion.id"
-          :question="currentQuestion" :modelValue="currentAnswer.value"
+        <component v-else :is="usesSubmission(currentQuestion) ? SubmissionAnswer : questionComponent(currentQuestion.type)" :key="currentQuestion.id"
+          :question="currentQuestion" :answer-id="currentAnswer.id" :modelValue="currentAnswer.value"
           :readonly="answerReadonly" :checkResult="currentAnswer"
-          @update:modelValue="onAnswerUpdate" />
+          @update:modelValue="onAnswerUpdate" @uploading="uploading = $event" />
         </div>
-        <IntermediateCheckButton :question="currentQuestion" :result="currentAnswer" :readonly="answerReadonly || !!currentAnswerSizeError"
-          :busy="checkingIds.has(currentQuestion.id)" @check="onIntermediateCheck" />
+        <div class="d-flex flex-wrap align-items-start gap-2">
+          <IntermediateCheckButton :question="currentQuestion" :result="currentAnswer" :readonly="uploading || answerReadonly || !!currentAnswerSizeError"
+            :busy="checkingIds.has(currentQuestion.id)" @check="onIntermediateCheck" />
+          <ResetTemplateButton v-if="currentQuestion.type === 'code_input' && (!usesSubmission(currentQuestion) || currentAnswer.value?.mode === 'code')" :question="currentQuestion" :model-value="currentAnswer.value"
+            :readonly="uploading || answerReadonly || !!currentAnswerSizeError" @update:modelValue="onAnswerUpdate" />
+        </div>
+        <ExecutionResult v-if="executionId(currentQuestion.id)" :answer-id="currentAnswer.id" :execution-id="executionId(currentQuestion.id)" :check-state="currentAnswer.check_state" @updated="live?.refresh()" />
         <div class="d-flex justify-content-between mt-3">
-          <button class="btn btn-outline-secondary btn-sm" :disabled="activeTab === 0" @click="activeTab--"><AppIcon name="arrow-left" />Назад</button>
-          <button class="btn btn-outline-secondary btn-sm" :disabled="activeTab === store.attempt.questions.length - 1" @click="activeTab++">Далее<AppIcon name="arrow-right" class="ge-icon-trailing" /></button>
+          <button class="btn btn-outline-secondary btn-sm" :disabled="uploading || activeTab === 0" @click="activeTab--"><AppIcon name="arrow-left" />Назад</button>
+          <button class="btn btn-outline-secondary btn-sm" :disabled="uploading || activeTab === store.attempt.questions.length - 1" @click="activeTab++">Далее<AppIcon name="arrow-right" class="ge-icon-trailing" /></button>
         </div>
       </div>
     </div>
@@ -91,6 +96,9 @@ import { createLiveRefresh } from '../utils/liveRefresh'
 import { validateAnswerSize } from '../utils/answerLimits'
 import { createAttemptTimer } from '../utils/attemptTimer'
 import IntermediateCheckButton from '../components/IntermediateCheckButton.vue'
+import SubmissionAnswer from '../components/SubmissionAnswer.vue'
+import ExecutionResult from '../components/ExecutionResult.vue'
+import ResetTemplateButton from '../components/ResetTemplateButton.vue'
 import MarkdownBody from '../components/MarkdownBody.vue'
 import TextInputQuestion from '../components/questions/TextInputQuestion.vue'
 import CodeInputQuestion from '../components/questions/CodeInputQuestion.vue'
@@ -108,6 +116,7 @@ const store = useAttemptStore()
 const activeTab = ref(0)
 const timeLeft = ref(null)
 const finishing = ref(false)
+const uploading = ref(false)
 const attemptTimer = createAttemptTimer()
 let timerInterval = null, live = null, disposed = false
 const saveState = ref('idle')
@@ -150,6 +159,8 @@ const answeredCount = computed(() => (store.attempt?.questions.length || 0) - un
 const progressPct = computed(() => store.attempt?.questions.length
   ? Math.round(answeredCount.value / store.attempt.questions.length * 100) : 0)
 
+function usesSubmission(q) { return !!q.submission_config }
+function executionId(qid) { return store.attempt?.executions?.find(e => e.question_id === qid)?.execution_id }
 function questionComponent(type) { return questionComponents[type] || TextInputQuestion }
 
 function tabClass(question) {
@@ -186,12 +197,12 @@ function onAnswerUpdate(value) {
 async function onIntermediateCheck() {
   const question = currentQuestion.value
   const questionId = question.id
-  if (answerReadonly.value || checkingIds.value.has(questionId)) return
+  if (uploading.value || answerReadonly.value || checkingIds.value.has(questionId)) return
   checkingIds.value.add(questionId)
   actionError.value = ''
   let previous
   try {
-    if (question.type === 'code_input' && currentAnswer.value.value == null && question.ui_config?.starter_code) {
+    if (!usesSubmission(question) && question.type === 'code_input' && currentAnswer.value.value == null && question.ui_config?.starter_code) {
       onAnswerUpdate({ code: question.ui_config.starter_code, lang: question.ui_config.lang || 'python' })
     }
     await saver.flush()
@@ -222,6 +233,7 @@ function showFinished(data) {
 }
 
 async function doFinish() {
+  if (uploading.value) { actionError.value = 'Дождитесь окончания загрузки файлов.'; autoFinishAttempted = false; return }
   if (finishing.value || hasRecovery.value) return
   finishing.value = true
   actionError.value = ''
@@ -250,7 +262,7 @@ async function doFinish() {
 }
 
 async function confirmFinish() {
-  if (finishing.value) return
+  if (uploading.value || finishing.value) return
   const skipped = unansweredNumbers.value
   const summary = `Отвечено ${answeredCount.value} из ${store.attempt.questions.length}.`
     + (skipped.length ? `\nНе завершены вопросы № ${skipped.join(', ')}.` : '')
@@ -266,12 +278,13 @@ async function retrySaves() {
 }
 
 function beforeUnload(event) {
-  if (leaveUnsaved || (!saver.hasPending() && !hasRecovery.value)) return
+  if (leaveUnsaved || (!uploading.value && !saver.hasPending() && !hasRecovery.value)) return
   event.preventDefault()
   event.returnValue = ''
 }
 
 async function beforeLeave() {
+  if (uploading.value) { actionError.value = 'Дождитесь окончания загрузки файлов перед выходом.'; return false }
   if (leaveUnsaved) return true
   if (hasRecovery.value) return confirm('Покинуть страницу? Несохранённые ответы останутся в черновике этого браузера.')
   if (!saver.hasPending()) return true
@@ -382,7 +395,7 @@ async function loadAttempt() {
   startTimer(store.attempt)
   if (store.attempt.finished_at) { showFinished(store.attempt); return }
   live = createLiveRefresh({
-    socket: io({ path: '/socket.io', autoConnect: false }),
+    socket: io({ path: '/socket.io', transports:['websocket'], autoConnect: false }),
     room: `attempt_${route.params.id}`,
     fetchSnapshot: async () => (await api.getAttempt(route.params.id)).data,
     applySnapshot: mergeSnapshot,
@@ -392,7 +405,7 @@ async function loadAttempt() {
         store.applyWsUpdate(payload)
       }
     },
-    shouldPoll: () => !store.attempt.finished_at,
+    shouldPoll: () => false, pollOnError: false,
   })
   live.start()
 }

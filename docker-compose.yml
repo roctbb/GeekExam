@@ -7,6 +7,10 @@ services:
       - db
       - redis
     env_file: .env
+    environment:
+      EXECUTOR_STORAGE_DIR: /app/executor-data
+    volumes:
+      - executor_data:/app/executor-data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8085/api/me')"]
@@ -22,6 +26,10 @@ services:
       backend:
         condition: service_healthy
     env_file: .env
+    environment:
+      EXECUTOR_STORAGE_DIR: /app/executor-data
+    volumes:
+      - executor_data:/app/executor-data
     restart: unless-stopped
 
   celery_beat:
@@ -57,3 +65,4 @@ services:
 
 volumes:
   pgdata:
+  executor_data:

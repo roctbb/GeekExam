@@ -11,8 +11,10 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = SECRET_KEY
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['MAX_CONTENT_LENGTH'] = 53 * 1024 * 1024
 
 db.init_app(app)
+import execution_models  # Register the complete metadata for Flask-Migrate.
 migrate = Migrate(app, db)
 
 # Celery workers emit Socket.IO events from separate processes.

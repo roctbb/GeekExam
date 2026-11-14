@@ -65,7 +65,7 @@ class Attempt(db.Model):
     started_at = db.Column(db.DateTime, default=datetime.utcnow)
     finished_at = db.Column(db.DateTime, nullable=True)
     is_checked = db.Column(db.Boolean, default=False, nullable=False)
-    total_points = db.Column(db.Integer, nullable=True)
+    total_points = db.Column(db.Float(precision=53), nullable=True)
     max_points = db.Column(db.Integer, nullable=False)
 
     test = db.relationship('Test', backref='attempts')
@@ -80,9 +80,10 @@ class Answer(db.Model):
     attempt_id = db.Column(db.Integer, db.ForeignKey('attempts.id', ondelete='CASCADE'), nullable=False)
     question_id = db.Column(db.Integer, db.ForeignKey('questions.id'), nullable=False)
     value = db.Column(db.JSON, nullable=True)
-    points = db.Column(db.Integer, nullable=True)
+    points = db.Column(db.Float(precision=53), nullable=True)
     check_state = db.Column(db.String(20), default='pending', nullable=False)
     check_comment = db.Column(db.Text, nullable=True)
+    latest_execution_id = db.Column(db.String(36), nullable=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     question = db.relationship('Question', backref='answers')

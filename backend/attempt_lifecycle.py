@@ -33,9 +33,19 @@ def mark_locked_attempt_finished(attempt, now=None):
 
 
 def publish_attempt_finished(attempt_id, finished_at):
+    from socket_events import publish_attempt_change
+    publish_attempt_change(db.session.get(Attempt, attempt_id))
     from manage import socketio
     socketio.emit('attempt_finished', {'attempt_id': attempt_id, 'finished_at': utc_iso(finished_at)},
                   room=f'attempt_{attempt_id}')
+    # Freeze async questions before returning from Finish. No network execution happens here.
+    from executor_service import submit
+    for answer in Answer.query.filter_by(attempt_id=attempt_id).all():
+        if answer.question.check_type not in ('docker', 'ai') or answer.value is None or answer.check_state not in ('pending', 'checking'): continue
+        try:
+            submit(answer.id, answer.value, answer.question.check_config, answer.question.body, answer.question.check_type, answer.question.max_points)
+        except (ValueError, KeyError, TypeError):
+            db.session.rollback()  # The ordinary checker task records the diagnostic.
     from celery_tasks.check_answer import check_attempt_answers
     check_attempt_answers.delay(attempt_id)
 

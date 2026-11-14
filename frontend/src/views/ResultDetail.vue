@@ -44,7 +44,9 @@
         <MarkdownBody v-if="q.body" class="mb-2" :source="q.body" compact />
         <div class="mb-2">
           <strong class="small">Ваш ответ:</strong>
-          <pre v-if="q.type === 'code_input'" class="ge-code mt-1">{{ answer(q.id)?.value?.code || '—' }}</pre>
+          <ExecutionResult v-if="executionId(q.id)" :answer-id="answer(q.id)?.id" :execution-id="executionId(q.id)" :check-state="answer(q.id)?.check_state" @updated="live.refresh()" />
+          <SubmissionAnswer v-else-if="q.submission_config" :question="q" :answer-id="answer(q.id)?.id" :model-value="answer(q.id)?.value" readonly />
+          <pre v-else-if="q.type === 'code_input'" class="ge-code mt-1">{{ answer(q.id)?.value?.code || '—' }}</pre>
           <div v-else-if="q.type === 'true_false_table'" class="mt-1">
             <TrueFalseTableQuestion :question="q" :modelValue="answer(q.id)?.value" :readonly="true" :checkResult="null" />
           </div>
@@ -79,6 +81,8 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { io } from 'socket.io-client'
 import api from '../api'
+import SubmissionAnswer from '../components/SubmissionAnswer.vue'
+import ExecutionResult from '../components/ExecutionResult.vue'
 import { createLiveRefresh } from '../utils/liveRefresh'
 import { numberedQuestionTitle, scoreStatus } from '../utils/answers'
 import CheckResult from '../components/CheckResult.vue'
@@ -95,16 +99,17 @@ const attempt = ref(null)
 const loadError = ref('')
 
 
+function executionId(qid) { return attempt.value?.executions?.find(e => e.question_id === qid)?.execution_id }
 function answer(qid) { return attempt.value?.answers?.find(a => a.question_id === qid) }
 function markdownInline(source) { return renderMarkdown(source, { inline: true }) }
 function formatScore(value) { return Number.isInteger(value) ? value : Number(value).toFixed(2) }
 
 const live = createLiveRefresh({
-  socket: io({ path: '/socket.io', autoConnect: false }),
+  socket: io({ path: '/socket.io', transports:['websocket'], autoConnect: false }),
   room: `attempt_${route.params.id}`,
   fetchSnapshot: async () => (await api.myAttemptResults(route.params.id)).data,
   applySnapshot: data => { attempt.value = data },
-  shouldPoll: () => !attempt.value?.is_checked,
+  shouldPoll: () => false, pollOnError: false,
   onError: error => {
     if (error?.response?.status === 422) {
       live.stop()

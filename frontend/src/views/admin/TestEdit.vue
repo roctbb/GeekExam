@@ -145,7 +145,7 @@
                   </div>
 
                   <div class="col-12">
-                    <QuestionConfigEditor :type="question.type" :check-type="question.check_type"
+                    <QuestionConfigEditor :question-id="question.id" :type="question.type" :check-type="question.check_type"
                       v-model:check-config="question.check_config_text" v-model:ui-config="question.ui_config_text" />
                   </div>
                 </div>
@@ -266,6 +266,7 @@ function toPrettyJson(value, fallback = '{}') {
 function makeQuestion(question = {}) {
   return {
     localId: nextId(),
+    id: question.id,
     type: question.type || 'text_input',
     title: question.title || '',
     body: question.body || '',
@@ -280,6 +281,7 @@ function makeQuestion(question = {}) {
 function makeVariant(variant = {}, index = 0) {
   return {
     localId: nextId(),
+    id: variant.id,
     title: variant.title || `Вариант ${index + 1}`,
     questions: (variant.questions || []).map((q) => makeQuestion(q)),
   }
@@ -335,6 +337,7 @@ function toPayload() {
       }
 
       return {
+        id: question.id,
         type,
         title,
         body: String(question.body || ''),
@@ -347,6 +350,7 @@ function toPayload() {
     })
 
     return {
+      id: variant.id,
       title: String(variant.title || '').trim() || `Вариант ${variantIndex + 1}`,
       questions,
     }
@@ -398,6 +402,15 @@ async function save(section) {
       payload.expected_time_limit = savedTimeLimit
       await api.updateTest(route.params.id, payload)
       savedTimeLimit = payload.time_limit
+      const {data} = await api.getTest(route.params.id)
+      draft.variants.forEach((variant,i) => {
+        variant.id=data.variants[i]?.id
+        sentSnapshot.variants[i].id=variant.id
+        variant.questions.forEach((question,j) => {
+          question.id=data.variants[i]?.questions[j]?.id
+          sentSnapshot.variants[i].questions[j].id=question.id
+        })
+      })
     }
     markSaved(sentSnapshot, section)
     success.value = section === 'params' ? 'Параметры теста сохранены' : 'Вопросы сохранены'
@@ -494,8 +507,10 @@ function buildFallbackPayload(test) {
     description: test.description,
     time_limit: test.time_limit,
     variants: (test.variants || []).map((variant, index) => ({
+      id: variant.id,
       title: variant.title || `Вариант ${index + 1}`,
       questions: (variant.questions || []).map((question) => ({
+        id: question.id,
         type: question.type,
         title: question.title,
         body: question.body,

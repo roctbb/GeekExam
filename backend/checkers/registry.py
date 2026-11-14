@@ -6,7 +6,7 @@ CHECK_TYPES = {
     'exact': ExactChecker,
     'checker': PythonChecker,
     'docker': DockerChecker,
-    'ai': DockerChecker,  # AI also goes through GeekPasteV2
+    'ai': DockerChecker,  # AI and Docker share the immutable execution protocol.
     'manual': None,       # No auto-check
 }
 

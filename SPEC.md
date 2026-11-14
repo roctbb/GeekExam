@@ -1,3 +1,5 @@
+> Историческое техническое задание. Актуальная интеграция описана в [backend/EXECUTOR.md](backend/EXECUTOR.md). Ветки GeekPaste и `/api/callback/check` удалены; проверки используют только GeekExecutor.
+
 # GeekExam — Техническое задание
 
 ## 1. Обзор проекта

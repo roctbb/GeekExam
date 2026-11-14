@@ -128,6 +128,7 @@ def _topic_summary(attempt):
 
 
 def _attempt_detail(attempt, include_check_config=False):
+    from executor_service import execution_links
     server_now = datetime.utcnow()
     time_left = None
     time_deadline_at = None
@@ -148,9 +149,23 @@ def _attempt_detail(attempt, include_check_config=False):
             'check_type': q.check_type,
             'ui_config': q.ui_config,
             'allow_intermediate_check': q.allow_intermediate_check,
+            'files_url': f'/api/attempts/{attempt.id}/questions/{q.id}/files',
         }
+        if q.check_type in ('ai', 'docker', 'manual'):
+            cfg = q.check_config or {}
+            question['submission_config'] = {key: cfg[key] for key in ('lang','allowed_languages','submission_modes',
+                'allowed_extensions','entrypoint','max_files','max_file_bytes','max_total_bytes') if key in cfg}
+            public = question['submission_config']
+            from executor_validation import default_language
+            public.setdefault('lang', default_language(q.check_type, cfg, q.ui_config))
+            public.setdefault('allowed_languages', [public['lang']])
+            public.setdefault('submission_modes', ['files','code','project','repository'] if q.type in ('code_input','interactive') else ['text','files'])
         if include_check_config:
-            question['check_config'] = q.check_config
+            if current_role() in ('teacher', 'admin'):
+                question['check_config'] = q.check_config
+            else:
+                from executor_service import public_check_config
+                question['check_config'] = public_check_config(q)
         questions.append(question)
 
     return {
@@ -180,6 +195,7 @@ def _attempt_detail(attempt, include_check_config=False):
             for a in attempt.answers
         ],
         'topic_summary': _topic_summary(attempt),
+        'executions': execution_links(attempt.id, current_user_id(), attempt.answers),
     }
 
 
@@ -228,6 +244,8 @@ def join_test():
         db.session.rollback()
         return jsonify({'error': 'Вы уже проходите этот вариант'}), 422
 
+    from socket_events import publish_attempt_change
+    publish_attempt_change(attempt)
     return jsonify({'attempt_id': attempt.id}), 201
 
 
@@ -237,6 +255,8 @@ def delete_attempt(attempt_id):
     attempt = Attempt.query.get_or_404(attempt_id)
     db.session.delete(attempt)
     db.session.commit()
+    from socket_events import publish_attempt_change
+    publish_attempt_change(attempt)
     return '', 204
 
 
@@ -261,7 +281,8 @@ def finish_attempt(attempt_id):
     if not finish_locked_attempt(attempt):
         return jsonify({'error': 'Тест уже завершён'}), 422
 
-    return jsonify({'status': 'finished'})
+    from executor_service import execution_links
+    return jsonify(status='finished', executions=execution_links(attempt.id, attempt.user_id))
 
 
 @attempts_bp.route('/api/attempts/<int:attempt_id>/recheck', methods=['POST'])
@@ -271,29 +292,30 @@ def recheck_attempt(attempt_id):
     if not attempt.finished_at:
         return jsonify({'error': 'Перепроверка доступна только для завершённых работ'}), 422
 
-    to_check = []
-    for answer in attempt.answers:
-        if answer.question.check_type == 'manual':
-            continue
-        if answer.check_state == 'checking':
-            continue
-        answer.check_state = 'checking'
-        answer.points = None
-        answer.check_comment = None
-        to_check.append(answer.id)
-
-    if not to_check:
-        return jsonify({'error': 'Нет ответов для автоматической перепроверки'}), 422
-
-    attempt.is_checked = False
-    attempt.total_points = None
-    db.session.commit()
-
+    from executor_service import submit, execution_links, publish_created
     from celery_tasks.check_answer import check_single_answer
-    for answer_id in to_check:
-        check_single_answer.delay(answer_id, intermediate=False)
-
-    return jsonify({'status': 'checking', 'queued': len(to_check)})
+    queued, local, native = [], [], []
+    try:
+        for answer in attempt.answers:
+            question = answer.question
+            if question.check_type == 'manual' or answer.check_state == 'checking': continue
+            if question.check_type in ('ai', 'docker'):
+                before = answer.latest_execution_id
+                submit(answer.id, answer.value, question.check_config, question.body, question.check_type, question.max_points, commit=False)
+                if answer.latest_execution_id != before: native.append(answer.latest_execution_id)
+            else:
+                answer.check_state = 'checking'
+                local.append(answer.id)
+            queued.append(answer.id)
+        if not queued: return jsonify(error='Нет ответов для автоматической перепроверки'), 422
+        attempt.is_checked = False
+        db.session.commit()
+    except ValueError as error:
+        db.session.rollback()
+        return jsonify(error=str(error)), 422
+    for run_id in native: publish_created(run_id)
+    for answer_id in local: check_single_answer.delay(answer_id, intermediate=False)
+    return jsonify(status='checking', queued=len(queued), executions=execution_links(attempt.id, attempt.user_id))
 
 
 @attempts_bp.route('/api/my-attempts', methods=['GET'])

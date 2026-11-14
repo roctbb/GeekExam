@@ -40,4 +40,13 @@ export default {
   checkAnswer: (id) => api.post(`/answers/${id}/check`),
   recheckAnswer: (id) => api.post(`/answers/${id}/recheck`),
   gradeAnswer: (id, points, comment) => api.put(`/answers/${id}/grade`, { points, comment }),
+  execution: id => api.get(`/answers/${id}/execution`),
+  executionRun: id => api.get(`/executions/${id}`),
+  executionHistory: id => api.get(`/answers/${id}/executions`),
+  answerFiles: id => api.get(`/answers/${id}/files`),
+  uploadAnswerFile: (id, file) => {const data=new FormData();data.append('file',file);return api.post(`/answers/${id}/files`,data,{timeout:120000})},
+  taskFiles: url => api.get(url, {baseURL:''}),
+  questionFiles: id => api.get(`/questions/${id}/files`),
+  uploadQuestionFile: (id,data) => api.post(`/questions/${id}/files`,data,{timeout:120000}),
+  deleteQuestionFile: (id,file) => api.delete(`/questions/${id}/files/${file}`),
 }

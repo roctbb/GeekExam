@@ -46,6 +46,19 @@ class AttemptReferenceAccessTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotIn('check_config', response.json['questions'][0])
 
+    def test_native_submission_settings_exclude_private_grading_materials(self):
+        q=self.attempt.variant.questions[0]
+        q.type, q.check_type = 'code_input', 'ai'
+        q.check_config = {'lang':'python','submission_modes':['files','project'], 'max_files':3,
+            'private_instructions':'SECRET RUBRIC','reference_answer':'SECRET ANSWER','gpt_model':'PRIVATE MODEL'}
+        result=self.request('student')
+        self.assertEqual(result.status_code,200)
+        cfg=result.json['questions'][0]['submission_config']
+        self.assertEqual(cfg['submission_modes'],['files','project'])
+        self.assertEqual(cfg['max_files'],3)
+        self.assertNotIn('SECRET',result.text)
+        self.assertNotIn('PRIVATE MODEL',result.text)
+
     def test_other_student_cannot_read_attempt(self):
         self.assertEqual(self.request('student', user_id=99).status_code, 403)
 

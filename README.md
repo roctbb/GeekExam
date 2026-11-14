@@ -1,12 +1,12 @@
 # GeekExam
 
-Платформа для проведения тестов по информатике в школе. Интегрируется с [CodingProjects](https://codingprojects.ru) через JWT и использует [GeekPasteV2](../GeekPasteV2) для проверки кода.
+Платформа для проведения тестов по информатике в школе. Интегрируется с [CodingProjects](https://codingprojects.ru) через JWT и использует [GeekExecutor](../GeekExecutor) для выполнения проверок по подписанному API.
 
 ## Быстрый старт
 
 ```bash
 cp .env.example .env
-# Заполните .env (JWT_SECRET должен совпадать с GeekPasteV2)
+# Заполните .env (JWT_SECRET должен совпадать с Coding Projects; отдельный GEEKEXECUTOR_SECRET — с ключом клиента geekexam в GeekExecutor)
 
 docker compose up -d
 
@@ -53,9 +53,14 @@ Python, JavaScript, TypeScript и C/C++. Язык задаётся в `ui_config
 |-----|----------|
 | `exact` | Сравнение с эталоном |
 | `checker` | Python-функция на сервере |
-| `docker` | Запуск кода через GeekPasteV2 |
-| `ai` | GPT-проверка через GeekPasteV2 |
+| `docker` | Запуск кода через GeekExecutor |
+| `ai` | GPT-проверка через GeekExecutor |
 | `manual` | Ручная оценка учителем |
+
+Оценки ответов и итоговые результаты поддерживают половины балла. Для вопроса
+с дробными частичными баллами задайте `check_config.score_step: 0.5`;
+например, восемь утверждений с `max_points: 4` дают по 0,5 за верный ответ.
+Без этой настройки сохраняется прежнее округление до целых баллов.
 
 ## Добавление нового типа вопроса
 
@@ -101,4 +106,6 @@ npm run build
 Браузерные тесты сами запускают Vite на `127.0.0.1:4178` и подменяют API.
 Они проверяют сохранение и восстановление ответов, истечение таймера, сетевые
 ошибки, обновление результатов, редактор преподавателя и мобильную страницу.
-Интеграция с настоящим сервером и GeekPaste проверяется отдельно.
+Общий изолированный стенд Coding Projects + GeekExam + GeekExecutor описан в Coding Projects, docs/executor-qa.md. Старый API GeekPaste и переключатель backend удалены.
+
+Серверный контракт нового исполнителя, способы сдачи и порядок перехода: [backend/EXECUTOR.md](backend/EXECUTOR.md).

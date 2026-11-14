@@ -65,5 +65,6 @@ def check_matrix(answer, cfg, max_points, normalize):
         total += weight
         if normalize(given_fields.get(key, ''), cfg) == normalize(value, cfg):
             right += weight
-    points = round(max_points * right / total) if cfg.get('partial_scoring', True) else (max_points if right == total else 0)
+    from checkers.scoring import round_points
+    points = round_points(max_points * right / total, cfg) if cfg.get('partial_scoring', True) else (max_points if right == total else 0)
     return points, f'Получено {points} из {max_points} баллов'

@@ -37,3 +37,12 @@ test('titles keep an existing number and otherwise receive the display number', 
   assert.equal(numberedQuestionTitle('Повторяющееся сообщение', 11), '12. Повторяющееся сообщение')
   assert.equal(numberedQuestionTitle('3.14 — число', 1), '2. 3.14 — число')
 })
+
+test('native files, projects and repositories count actual work rather than mode metadata', () => {
+  const q={type:'code_input'}
+  assert.equal(isQuestionAnswered(q,{mode:'files',lang:'python',files:[]}),false)
+  assert.equal(isQuestionAnswered(q,{mode:'files',files:[{upload_id:'owned'}]}),true)
+  assert.equal(isQuestionAnswered(q,{mode:'project',files:[{path:'main.py',content:''}]}),false)
+  assert.equal(isQuestionAnswered(q,{mode:'project',files:[{path:'main.py',content:'print(1)'}]}),true)
+  assert.equal(isQuestionAnswered(q,{mode:'repository',repository_url:'https://github.com/me/solution'}),true)
+})

@@ -5,6 +5,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from datetime import datetime
 from copy import deepcopy
 from celery_app import celery
+from checkers.scoring import valid_points
 
 
 def _get_app():
@@ -63,6 +64,8 @@ def _finalize_attempt_if_done_inner(attempt_id, force_recalculate=False):
     if updated == 0:
         return  # Another worker already finalized this attempt.
 
+    from socket_events import publish_attempt_change
+    publish_attempt_change(attempt)
     from manage import socketio
     socketio.emit('attempt_checked', {
         'attempt_id': attempt_id,
@@ -139,6 +142,25 @@ def check_single_answer(answer_id, intermediate=False):
         checked_value = deepcopy(answer.value)
         check_config = deepcopy(question.check_config or {})
         body, max_points = question.body, question.max_points
+        # Native async snapshots own their state and preserve an earlier grade.
+        # A redelivered legacy queue message must not erase that grade.
+        if is_async_check(check_type) and checked_value is not None:
+            try:
+                validate_answer(checked_value, question)
+                db.session.rollback()
+                get_checker(check_type).submit(answer_id, checked_value, check_config, body, check_type, max_points)
+                return
+            except Exception as error:
+                db.session.rollback()
+                answer, attempt = lock_answer(answer_id)
+                if not answer or not attempt or answer.value != checked_value:
+                    db.session.rollback();return
+                if answer.latest_execution_id:
+                    db.session.rollback();return  # Durable native outbox/results remain authoritative.
+                answer.check_state = 'checking'
+                db.session.commit()
+                _complete_check(answer_id, checked_value, None, str(error), error=True)
+                return
         answer.check_state = 'checking'
         answer.points = None
         answer.check_comment = None
@@ -148,17 +170,9 @@ def check_single_answer(answer_id, intermediate=False):
             validate_answer(checked_value, question)
             if checked_value is None:
                 points, comment = 0, 'Ответ не предоставлен'
-            elif is_async_check(check_type):
-                result = get_checker(check_type).submit(
-                    answer_id, checked_value, check_config, body, check_type, max_points,
-                )
-                ok, message = result if isinstance(result, tuple) else (bool(result), None)
-                if ok:
-                    return  # The callback applies the result to the current attempt state.
-                raise ValueError(message or 'Ошибка отправки на проверку')
             else:
                 points, comment = get_checker(check_type).check(checked_value, check_config, max_points)
-                if type(points) is not int or not 0 <= points <= max_points:
+                if not valid_points(points, max_points, check_config):
                     raise ValueError('Проверяющая программа вернула недопустимый балл')
                 if comment is not None and not isinstance(comment, str):
                     raise ValueError('Проверяющая программа вернула недопустимый комментарий')
@@ -193,14 +207,7 @@ def check_attempt_answers(attempt_id):
 
 @celery.task
 def recover_pending_answers():
-    """On startup: re-queue answers stuck in pending for finished attempts.
-
-    Only recovers answers in 'pending' state — 'checking' means an async job
-    was already submitted to GeekPaste and a callback is expected; re-queuing
-    those would create duplicate tasks.  If the callback never arrives they will
-    remain stuck until manual intervention or the next restart, which is the
-    safer failure mode.
-    """
+    """Requeue pending answers; native execution outboxes recover in-flight checks."""
     try:
         with _get_app().app_context():
             from models import db, Answer, Attempt

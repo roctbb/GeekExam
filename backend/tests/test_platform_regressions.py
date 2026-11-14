@@ -13,14 +13,17 @@ from flask_socketio import SocketIO
 from models import db, User, Test, Variant, Question, Attempt, Answer
 from routes.answers import answers_bp
 from routes.attempts import attempts_bp
-from routes.callbacks import callbacks_bp
+from routes.executor import executor_bp
+from execution_models import ExecutionRun
+from celery_tasks.execution import dispatch_execution
+import executor_transport as transport
+import hashlib, jwt, time, tempfile
 from routes.tests import tests_bp
 from socket_events import register_socket_handlers
 from celery_tasks.check_answer import (
     check_single_answer, check_attempt_answers, finish_expired_attempts,
     _finalize_attempt_if_done_inner,
 )
-from checkers.check_identity import versioned_callback_id
 from validation import validate_answer
 from attempt_lifecycle import finish_locked_attempt
 from answer_limits import SHORT_FIELD_LIMIT, TEXT_LIMIT, CODE_LIMIT, REQUEST_LIMIT
@@ -33,16 +36,18 @@ class PlatformRegressionTests(unittest.TestCase):
         self.app = Flask(__name__)
         self.app.config.update(TESTING=True, SECRET_KEY='test-only', SQLALCHEMY_DATABASE_URI=TEST_DATABASE_URL)
         db.init_app(self.app)
-        for blueprint in (answers_bp, attempts_bp, callbacks_bp, tests_bp):
+        for blueprint in (answers_bp, attempts_bp, executor_bp, tests_bp):
             self.app.register_blueprint(blueprint)
         self.socketio = SocketIO(self.app, async_mode='threading')
         register_socket_handlers(self.socketio)
         self.patch(patch.dict('sys.modules', {'manage': SimpleNamespace(app=self.app, socketio=self.socketio)}))
-        self.enqueue_answer = self.patch(patch.object(check_single_answer, 'delay'))
-        self.enqueue_attempt = self.patch(patch.object(check_attempt_answers, 'delay'))
-        self.patch(patch('routes.callbacks._verify_callback_auth', return_value=None))
-        self.patch(patch('routes.callbacks._is_duplicate_callback', return_value=False))
-        self.patch(patch('routes.callbacks._mark_callback_processed'))
+        self.directory=tempfile.TemporaryDirectory();self.addCleanup(self.directory.cleanup)
+        self.secret='native-regression-secret-'*3
+        self.patch(patch('config.GEEKEXECUTOR_SECRET',self.secret))
+        self.patch(patch('config.EXECUTOR_STORAGE_DIR',self.directory.name))
+        self.patch(patch.object(dispatch_execution,'delay'))
+        self.enqueue_answer=self.patch(patch.object(check_single_answer,'delay'))
+        self.enqueue_attempt=self.patch(patch.object(check_attempt_answers,'delay'))
         with self.app.app_context():
             db.create_all()
             db.session.add_all([User(id=1, name='Teacher', role='teacher'),
@@ -94,10 +99,14 @@ class PlatformRegressionTests(unittest.TestCase):
         self.assertEqual(self.client.post('/api/attempts/1/finish').status_code, 200)
 
     def callback(self, points=9):
-        return self.app.test_client().post('/api/callback/check', json={
-            'callback_id': versioned_callback_id(1, self.state().value),
-            'status': 'success', 'points': points, 'max_points': 10,
-        })
+        with self.app.app_context():
+            answer=db.session.get(Answer,1)
+            run=db.session.get(ExecutionRun,answer.latest_execution_id)
+            value=dict(execution_id=run.id,state='done',points=points,comment='Native result')
+            path=f'/api/executor/executions/{run.id}/result'
+        raw=transport.json_bytes(value);now=int(time.time())
+        token=jwt.encode(dict(iss='geekexecutor',aud='geekexam',purpose='execution-result',iat=now,exp=now+60,body_sha256=hashlib.sha256(raw).hexdigest()),self.secret,algorithm='HS256')
+        return self.app.test_client().post(path,data=raw,headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'})
 
     def test_references_require_finished_owned_attempt(self):
         response = self.client.get('/api/my-attempts/1/results')
@@ -140,6 +149,17 @@ class PlatformRegressionTests(unittest.TestCase):
                     self.assertEqual(socket.emit('join', data, callback=True), {'error': 'Forbidden'})
                 socket.disconnect()
 
+    def test_result_list_socket_rooms_are_private_and_teacher_only(self):
+        for user_id, role, room, allowed in [(2,'student','user_2',True),(3,'student','user_2',False),
+                (2,'student','test_1',False),(1,'teacher','test_1',True),(1,'teacher','test_999',False)]:
+            with self.subTest(user=user_id,room=room):
+                socket=self.socketio.test_client(self.app,flask_test_client=self.login(user_id,role))
+                ack=socket.emit('join',{'room':room},callback=True)
+                self.assertEqual(ack,{'status':'joined'} if allowed else {'error':'Forbidden'})
+                self.socketio.emit('attempt_list_updated',{'attempt_id':1},room=room)
+                self.assertEqual(bool(socket.get_received()),allowed)
+                socket.disconnect()
+
     def test_expired_save_finishes_at_deadline_without_accepting_value(self):
         started = datetime.utcnow() - timedelta(minutes=10)
         self.change(test={'time_limit': 1}, attempt={'started_at': started})
@@ -180,20 +200,13 @@ class PlatformRegressionTests(unittest.TestCase):
         teacher = self.login(1, 'teacher')
         self.assertEqual(teacher.post('/api/answers/1/recheck').status_code, 200)
         self.assertFalse(self.state().is_checked)
-        self.assertIsNone(self.state().total_points)
-        self.assertIsNone(self.state().points)
+        self.assertEqual(self.state().total_points,2)
+        self.assertEqual(self.state().points,2)
         self.assertEqual(teacher.post('/api/answers/1/recheck').status_code, 422)
         self.assertEqual(self.callback().status_code, 200)
         self.assertEqual((self.state().points, self.state().total_points), (9, 9))
         self.assertTrue(self.state().is_checked)
 
-    def test_failed_async_submission_finishes_instead_of_hanging(self):
-        self.change(question={'check_type': 'ai'})
-        self.finish()
-        with patch('checkers.check_types.docker.DockerChecker.submit', return_value=(False, 'timeout')):
-            check_single_answer.run(1)
-        self.assertEqual((self.state().state, self.state().points, self.state().total_points), ('error', 0, 0))
-        self.assertTrue(self.state().is_checked)
 
     def test_checker_exception_finishes_instead_of_hanging(self):
         self.finish()
@@ -202,31 +215,15 @@ class PlatformRegressionTests(unittest.TestCase):
         self.assertEqual(self.state().state, 'error')
         self.assertTrue(self.state().is_checked)
 
-    def test_late_success_after_submission_timeout_recalculates_total(self):
-        self.change(question={'check_type': 'ai'})
-        self.finish()
-        with patch('checkers.check_types.docker.DockerChecker.submit', return_value=(False, 'timeout')):
-            check_single_answer.run(1)
-        self.assertEqual(self.state().total_points, 0)
-        self.assertEqual(self.callback().status_code, 200)
-        self.assertEqual(self.state().total_points, 9)
 
     def test_late_callback_cannot_overwrite_teacher_grade(self):
         self.change(question={'check_type': 'ai'})
         self.finish()
+        self.assertEqual(self.callback().status_code,200)
         self.login(1, 'teacher').put('/api/answers/1/grade', json={'points': 5})
-        self.assertTrue(self.callback().json['stale'])
+        self.assertEqual(self.callback().status_code,200)
         self.assertEqual((self.state().points, self.state().total_points), (5, 5))
 
-    def test_submission_error_cannot_overwrite_an_already_received_callback(self):
-        self.change(question={'check_type': 'ai'})
-        self.finish()
-        def callback_then_timeout(*args):
-            self.assertEqual(self.callback().status_code, 200)
-            return False, 'timeout'
-        with patch('checkers.check_types.docker.DockerChecker.submit', side_effect=callback_then_timeout):
-            check_single_answer.run(1)
-        self.assertEqual((self.state().state, self.state().total_points), ('checked', 9))
 
     def test_teacher_is_notified_when_grading_becomes_available(self):
         socket = self.socketio.test_client(self.app, flask_test_client=self.login(1, 'teacher'))
@@ -252,16 +249,6 @@ class PlatformRegressionTests(unittest.TestCase):
         self.enqueue_answer.assert_not_called()
         self.assertEqual(self.state().total_points, 7)
 
-    def test_intermediate_failure_after_finish_is_terminal(self):
-        self.change(question={'check_type': 'ai'})
-        def fail_during_finish(*args):
-            self.finish()
-            check_attempt_answers.run(1)
-            return False, 'timeout'
-        with patch('checkers.check_types.docker.DockerChecker.submit', side_effect=fail_during_finish):
-            check_single_answer.run(1, intermediate=True)
-        self.assertEqual(self.state().state, 'error')
-        self.assertTrue(self.state().is_checked)
 
     def test_intermediate_checks_keep_active_attempt_ungraded_including_empty_answers(self):
         for value in [None, {'text': 'reference'}]:
@@ -369,39 +356,7 @@ class PlatformRegressionTests(unittest.TestCase):
             value = [value]
         self.assertEqual(self.client.put('/api/answers/1', json={'value': value}).status_code, 422)
 
-    def test_compilation_error_is_visible_via_socket_and_http_then_can_be_retried(self):
-        self.change(question={'type': 'code_input', 'check_type': 'docker'},
-                    answer={'value': {'code': 'broken', 'lang': 'cpp'}, 'check_state': 'checking'})
-        socket = self.socketio.test_client(self.app, flask_test_client=self.client)
-        socket.emit('join', {'room': 'attempt_1'})
-        response = self.client.post('/api/callback/check', json={
-            'callback_id': versioned_callback_id(1, self.state().value), 'status': 'success',
-            'verdict': 'compilation_error', 'error_type': 'compilation_error', 'points': 0, 'max_points': 3,
-            'comment': '0 из 3 тестов пройдено',
-            'details': [{'error_type': 'compilation_error', 'error': "main.cpp:4: expected ';'"}],
-        })
-        self.assertEqual(response.status_code, 200)
-        payload = socket.get_received()[0]['args'][0]
-        self.assertEqual(payload['check_state'], 'error')
-        self.assertIn("expected ';'", payload['check_comment'])
-        snapshot = self.client.get('/api/attempts/1').json['answers'][0]
-        self.assertEqual(snapshot['check_state'], 'error')
-        self.assertIn('Ошибка компиляции', snapshot['check_comment'])
-        self.assertIsNone(snapshot['points'])
-        self.assertEqual(self.state().state, 'pending')
-        self.assertEqual(self.client.post('/api/answers/1/check').status_code, 200)
-        socket.disconnect()
 
-    def test_legacy_error_callback_remains_visible_without_websocket(self):
-        self.change(question={'check_type': 'docker'}, answer={'check_state': 'checking'})
-        self.client.post('/api/callback/check', json={
-            'callback_id': 1, 'status': 'error', 'comment': 'Compilation failed: syntax error'})
-        snapshot = self.client.get('/api/attempts/1').json['answers'][0]
-        self.assertEqual(snapshot['check_state'], 'error')
-        self.assertIn('syntax error', snapshot['check_comment'])
-        self.finish()
-        check_attempt_answers.run(1)
-        self.enqueue_answer.assert_called_with(1)
 
     def test_extending_55_to_70_adds_exactly_15_minutes_and_cannot_repeat_from_stale_page(self):
         started = datetime.utcnow() - timedelta(minutes=40)

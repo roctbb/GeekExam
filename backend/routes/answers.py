@@ -5,6 +5,7 @@ from auth import api_login_required, teacher_required, current_user_id
 from attempt_lifecycle import lock_answer, finish_if_expired
 from validation import validate_answer
 from answer_limits import REQUEST_LIMIT, validate_answer_size
+from checkers.scoring import score_step, valid_points
 
 answers_bp = Blueprint('answers', __name__)
 
@@ -81,6 +82,14 @@ def intermediate_check(answer_id):
 
     if answer.check_state != 'pending':
         return jsonify({'error': 'Проверка уже выполняется'}), 422
+    if answer.question.check_type in ('docker', 'ai'):
+        from executor_service import submit, execution_links
+        try:
+            submit(answer.id, answer.value, answer.question.check_config, answer.question.body, answer.question.check_type, answer.question.max_points)
+        except ValueError as error:
+            db.session.rollback()
+            return jsonify(error=str(error)), 422
+        return jsonify(status='checking', executions=execution_links(attempt.id, attempt.user_id))
     answer.check_state = 'checking'
     db.session.commit()
 
@@ -104,17 +113,13 @@ def recheck_answer(answer_id):
 
     if answer.check_state == 'checking':
         return jsonify({'error': 'Проверка уже выполняется'}), 422
-    answer.check_state = 'checking'
-    answer.points = None
-    answer.check_comment = None
-    attempt.is_checked = False
-    attempt.total_points = None
-    db.session.commit()
-
-    from celery_tasks.check_answer import check_single_answer
-    check_single_answer.delay(answer_id, intermediate=False)
-
-    return jsonify({'status': 'checking'})
+    from executor_service import submit, execution_links
+    try:
+        submit(answer.id, answer.value, question.check_config, question.body, question.check_type, question.max_points)
+    except ValueError as error:
+        db.session.rollback()
+        return jsonify(error=str(error)), 422
+    return jsonify(status='checking', executions=execution_links(attempt.id, attempt.user_id))
 
 
 @answers_bp.route('/api/answers/<int:answer_id>/grade', methods=['PUT'])
@@ -127,8 +132,9 @@ def grade_answer(answer_id):
         return jsonify({'error': 'Дождитесь завершения автоматической проверки'}), 422
     data = request.get_json()
     points = data.get('points') if isinstance(data, dict) else None
-    if type(points) is not int or not 0 <= points <= answer.question.max_points:
-        return jsonify({'error': f'Укажите целое число баллов от 0 до {answer.question.max_points}'}), 422
+    if not valid_points(points, answer.question.max_points, answer.question.check_config):
+        step = score_step(answer.question.check_config)
+        return jsonify({'error': f'Укажите число баллов от 0 до {answer.question.max_points} с шагом {step}'}), 422
     comment = data.get('comment')
     if comment is not None and not isinstance(comment, str):
         return jsonify({'error': 'Комментарий должен быть строкой'}), 422

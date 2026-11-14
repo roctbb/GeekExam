@@ -50,7 +50,9 @@
         <!-- Answer display -->
         <div class="mb-3">
           <strong class="small">Ответ:</strong>
-          <pre v-if="q.type === 'code_input'" class="ge-code mt-1">{{ answer(q.id)?.value?.code || '—' }}</pre>
+          <ExecutionResult v-if="executionId(q.id)" :answer-id="answer(q.id)?.id" :execution-id="executionId(q.id)" :check-state="answer(q.id)?.check_state" @updated="live.refresh()" />
+          <SubmissionAnswer v-else-if="q.submission_config" :question="q" :answer-id="answer(q.id)?.id" :model-value="answer(q.id)?.value" readonly />
+          <pre v-else-if="q.type === 'code_input'" class="ge-code mt-1">{{ answer(q.id)?.value?.code || '—' }}</pre>
           <div v-else-if="q.type === 'true_false_table'" class="mt-1">
             <span v-if="!answer(q.id)?.value?.answers?.length" class="text-muted">—</span>
             <span v-for="(v, idx) in (answer(q.id)?.value?.answers || [])" :key="idx" class="me-2 badge bg-body-tertiary text-body border ge-answer-badge">
@@ -83,7 +85,7 @@
                 {{ answer(q.id)?.check_state === 'checked' ? scoreStatus(answer(q.id)?.points, q.max_points).label + ' · ' + answer(q.id)?.points + ' / ' + q.max_points + ' б.' : 'Ошибка' }}
               </span>
               <button v-if="attempt.finished_at && isAsyncCheck(q)" class="btn btn-sm btn-outline-secondary" @click="recheck(q.id, answer(q.id).id)">
-                <AppIcon name="retry" />Перепроверить нейронкой
+                <AppIcon name="retry" />Перепроверить
               </button>
             </div>
             <pre v-if="answer(q.id)?.check_comment" class="mb-0 p-2 bg-body-tertiary rounded small" style="white-space: pre-wrap; word-break: break-word">{{ answer(q.id).check_comment }}</pre>
@@ -91,14 +93,14 @@
           <div v-else class="d-flex align-items-center gap-2">
             <span class="text-muted small">Не проверено</span>
             <button v-if="attempt.finished_at && isAsyncCheck(q)" class="btn btn-sm btn-outline-secondary" @click="recheck(q.id, answer(q.id).id)">
-              <AppIcon name="play" />Запустить проверку нейронкой
+              <AppIcon name="play" />Запустить проверку
             </button>
           </div>
         </div>
 
         <!-- Grade form (manual questions, or auto-checked for teacher override) -->
         <div v-if="attempt.finished_at && (q.check_type === 'manual' || answer(q.id)?.check_state === 'checked')" class="row g-2 align-items-center">
-          <div class="col-auto"><input :disabled="gradeFeedback[q.id]?.state === 'saving'" @input="delete gradeFeedback[q.id]" aria-label="Баллы" type="number" class="form-control form-control-sm" style="width:80px" :min="0" :max="q.max_points" v-model.number="grades[q.id].points" /></div>
+          <div class="col-auto"><input :disabled="gradeFeedback[q.id]?.state === 'saving'" @input="delete gradeFeedback[q.id]" aria-label="Баллы" type="number" class="form-control form-control-sm" style="width:80px" :min="0" :max="q.max_points" :step="q.check_config?.score_step || 1" v-model.number="grades[q.id].points" /></div>
           <div class="col-12 col-md"><AutoTextarea class="form-control form-control-sm" placeholder="Комментарий" aria-label="Комментарий преподавателя" v-model="grades[q.id].comment" :disabled="gradeFeedback[q.id]?.state === 'saving'" @update:model-value="delete gradeFeedback[q.id]" /></div>
           <div class="col-auto"><button class="btn btn-sm btn-primary" :disabled="gradeFeedback[q.id]?.state === 'saving'" @click="grade(q.id, answer(q.id).id)"><AppIcon name="save" />{{ gradeFeedback[q.id]?.state === 'saving' ? 'Сохраняется…' : 'Сохранить' }}</button></div>
           <div v-if="gradeFeedback[q.id]" class="col-12 small" role="status" :class="gradeFeedback[q.id].state === 'error' ? 'text-danger' : 'text-success'">{{ gradeFeedback[q.id].message }}</div>
@@ -116,6 +118,8 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { io } from 'socket.io-client'
 import api from '../../api'
+import SubmissionAnswer from '../../components/SubmissionAnswer.vue'
+import ExecutionResult from '../../components/ExecutionResult.vue'
 import { createLiveRefresh } from '../../utils/liveRefresh'
 import { numberedQuestionTitle, scoreStatus } from '../../utils/answers'
 import AutoTextarea from '../../components/AutoTextarea.vue'
@@ -133,6 +137,7 @@ const gradeFeedback = reactive({})
 const deleting = ref(false)
 const actionError = ref('')
 
+function executionId(qid) { return attempt.value?.executions?.find(e => e.question_id === qid)?.execution_id }
 function answer(qid) { return attempt.value?.answers?.find(a => a.question_id === qid) }
 function optionLabel(q, value) { return String(q.ui_config?.options?.find(o => o.value === value)?.label ?? value ?? '—') }
 function markdownInline(source) { return renderMarkdown(source, { inline: true }) }
@@ -163,9 +168,11 @@ async function del() {
 async function grade(qid, aid) {
   if (gradeFeedback[qid]?.state === 'saving') return
   const draft = { ...grades[qid] }
-  const maxPoints = attempt.value.questions.find(q => q.id === qid).max_points
-  if (!Number.isInteger(draft.points) || draft.points < 0 || draft.points > maxPoints) {
-    gradeFeedback[qid] = { state: 'error', message: `Укажите целое число баллов от 0 до ${maxPoints}.` }
+  const question = attempt.value.questions.find(q => q.id === qid)
+  const maxPoints = question.max_points
+  const step = question.check_config?.score_step || 1
+  if (!Number.isFinite(draft.points) || !Number.isInteger(draft.points / step) || draft.points < 0 || draft.points > maxPoints) {
+    gradeFeedback[qid] = { state: 'error', message: `Укажите число баллов от 0 до ${maxPoints} с шагом ${step}.` }
     return
   }
   gradeFeedback[qid] = { state: 'saving', message: 'Сохраняется…' }
@@ -192,10 +199,7 @@ async function recheck(qid, aid) {
   const previouslyChecked = attempt.value.is_checked
   try {
     a.check_state = 'checking'
-    a.points = null
-    a.check_comment = null
     attempt.value.is_checked = false
-    attempt.value.total_points = null
     await api.recheckAnswer(aid)
     await live.refresh()
   } catch (e) {
@@ -219,11 +223,8 @@ async function recheckAll() {
   try {
     for (const a of autoAnswers) {
       a.check_state = 'checking'
-      a.points = null
-      a.check_comment = null
     }
     attempt.value.is_checked = false
-    attempt.value.total_points = null
     await api.recheckAttempt(route.params.id)
     await live.refresh()
   } catch (e) {
@@ -249,11 +250,11 @@ function applySnapshot(data) {
 }
 
 const live = createLiveRefresh({
-  socket: io({ path: '/socket.io', autoConnect: false }),
+  socket: io({ path: '/socket.io', transports:['websocket'], autoConnect: false }),
   room: `attempt_${route.params.id}`,
   fetchSnapshot: async () => (await api.getAttempt(route.params.id)).data,
   applySnapshot,
-  shouldPoll: () => !attempt.value?.finished_at || !attempt.value?.is_checked,
+  shouldPoll: () => false, pollOnError: false,
   onError: error => { loadError.value = error ? 'Не удалось обновить работу. Проверьте соединение и повторите.' : '' },
 })
 const loadAttempt = () => live.refresh()

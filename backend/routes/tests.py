@@ -34,11 +34,8 @@ def _parse_and_create_test(data, test=None):
 
     if test is None:
         test = Test(created_by=current_user_id())
-    else:
-        # Remove old variants
-        for v in list(test.variants):
-            db.session.delete(v)
-        db.session.flush()
+    old_variants = list(test.variants)
+    used_variants = set()
 
     test.title = data['title']
     test.description = data.get('description')
@@ -46,21 +43,31 @@ def _parse_and_create_test(data, test=None):
     test.source_json = json.dumps(data, ensure_ascii=False)
 
     for i, vdata in enumerate(data.get('variants', [])):
-        variant = Variant(title=vdata.get('title', f'Вариант {i+1}'), order=i)
-        test.variants.append(variant)
+        variant = next((v for v in old_variants if v.id == vdata.get('id')), None) if vdata.get('id') else (old_variants[i] if i < len(old_variants) else None)
+        if variant in used_variants: raise ValueError('Вариант указан повторно')
+        if variant is None:
+            variant = Variant()
+            test.variants.append(variant)
+        used_variants.add(variant)
+        variant.title, variant.order = vdata.get('title', f'Вариант {i+1}'), i
+        old_questions = list(variant.questions)
+        used_questions = set()
         for j, qdata in enumerate(vdata.get('questions', [])):
-            question = Question(
-                order=j,
-                type=qdata['type'],
-                title=qdata['title'],
-                body=qdata.get('body'),
-                max_points=qdata['max_points'],
-                check_type=qdata['check_type'],
-                check_config=qdata.get('check_config'),
-                ui_config=qdata.get('ui_config'),
-                allow_intermediate_check=qdata.get('allow_intermediate_check', False),
-            )
-            variant.questions.append(question)
+            question = next((q for q in old_questions if q.id == qdata.get('id')), None) if qdata.get('id') else (old_questions[j] if j < len(old_questions) else None)
+            if question in used_questions: raise ValueError('Вопрос указан повторно')
+            if question is None:
+                question = Question()
+                variant.questions.append(question)
+            used_questions.add(question)
+            question.order, question.type, question.title = j, qdata['type'], qdata['title']
+            question.body, question.max_points = qdata.get('body'), qdata['max_points']
+            question.check_type, question.check_config = qdata['check_type'], qdata.get('check_config')
+            question.ui_config = qdata.get('ui_config')
+            question.allow_intermediate_check = qdata.get('allow_intermediate_check', False)
+        for question in old_questions:
+            if question not in used_questions: db.session.delete(question)
+    for variant in old_variants:
+        if variant not in used_variants: db.session.delete(variant)
 
     return test
 
@@ -148,6 +155,11 @@ def _test_to_dict(test, include_variants=False):
             except json.JSONDecodeError:
                 source_json = None
 
+        # Stable identities keep uploaded materials attached across authoring saves.
+        if source_json:
+            for variant, payload in zip(test.variants, source_json.get('variants', [])):
+                payload['id'] = variant.id
+                for question, qdata in zip(variant.questions, payload.get('questions', [])): qdata['id'] = question.id
         d['source_json'] = source_json
         d['variants'] = [
             {

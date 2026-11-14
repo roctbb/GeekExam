@@ -2,6 +2,7 @@
   <div class="ge-fade-in">
     <div class="ge-page-header">
       <h4>Результаты</h4>
+      <button type="button" class="btn btn-sm btn-outline-secondary" :disabled="refreshing" @click="refresh">Обновить</button>
       <RouterLink :to="`/admin/tests/${$route.params.id}`" class="btn btn-outline-secondary btn-sm"><AppIcon name="arrow-left" />Назад</RouterLink>
     </div>
     <div v-if="actionError" class="alert alert-danger" role="alert">{{ actionError }}</div>
@@ -58,7 +59,7 @@ import api from '../../api'
 import { useResultList } from '../../composables/useResultList'
 import { formatDateTime as fmt, parseApiDate } from '../../utils/dates'
 const route = useRoute()
-const { attempts, loading, refreshing, error, refresh } = useResultList(() => api.getTestAttempts(route.params.id))
+const { attempts, loading, refreshing, error, refresh } = useResultList(() => api.getTestAttempts(route.params.id), `test_${route.params.id}`)
 const sortBy = ref('started_at')
 const sortDir = ref('desc')
 const recheckingIds = ref(new Set())
@@ -91,7 +92,7 @@ async function recheck(attempt) {
   try {
     await api.recheckAttempt(attempt.id)
     const current = attempts.value.find(a => a.id === attempt.id)
-    if (current) { current.is_checked = false; current.total_points = null }
+    if (current) { current.is_checked = false; /* Previous points remain visible until the new result. */ }
     await refresh()
   } catch (e) {
     actionError.value = e?.response?.data?.error || 'Не удалось запустить перепроверку работы'

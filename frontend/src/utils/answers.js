@@ -18,6 +18,9 @@ export function hasAnswerValue(value) {
 
 export function isQuestionAnswered(question, value) {
   if (!value) return false
+  if (value.mode === 'repository') return /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+/.test(value.repository_url || '')
+  if (['files', 'project'].includes(value.mode)) return (value.files || []).some(file => file.upload_id || hasAnswerValue(file.content))
+    || hasAnswerValue(value.text)
   if (question.type === 'text_input') return hasAnswerValue(value.text)
   if (question.type === 'code_input') return hasAnswerValue(value.code)
   const ui = question.ui_config || {}
