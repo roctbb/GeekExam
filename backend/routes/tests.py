@@ -2,12 +2,84 @@ from time_utils import utc_iso
 import json
 from datetime import datetime
 from flask import Blueprint, jsonify, request
-from models import db, Test, Variant, Question, Attempt
+from sqlalchemy.exc import IntegrityError
+from models import db, Test, TestGroup, Variant, Question, Attempt
 from auth import teacher_required, current_user_id
 from validation import validate_test_payload
 from attempt_lifecycle import mark_locked_attempt_finished, publish_attempt_finished
 
 tests_bp = Blueprint('tests', __name__)
+
+
+def _group_id(value):
+    if value is None:
+        return None
+    if type(value) is not int or value <= 0:
+        raise ValueError('Выберите группу из списка')
+    if db.session.get(TestGroup, value) is None:
+        raise ValueError('Группа не найдена. Обновите список групп.')
+    return value
+
+
+def _save_group(group):
+    data = request.get_json()
+    name = data.get('name') if isinstance(data, dict) else None
+    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 120:
+        return jsonify({'error': 'Название группы должно содержать от 1 до 120 символов'}), 422
+    is_new = group.id is None
+    group.name = name.strip()
+    db.session.add(group)
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({'error': 'Группа с таким названием уже существует'}), 409
+    return jsonify({'id': group.id, 'name': group.name}), 201 if is_new else 200
+
+
+@tests_bp.route('/api/test-groups', methods=['GET'])
+@teacher_required
+def list_test_groups():
+    groups = TestGroup.query.order_by(TestGroup.name, TestGroup.id).all()
+    return jsonify([{'id': group.id, 'name': group.name} for group in groups])
+
+
+@tests_bp.route('/api/test-groups', methods=['POST'])
+@teacher_required
+def create_test_group():
+    return _save_group(TestGroup())
+
+
+@tests_bp.route('/api/test-groups/<int:group_id>', methods=['PUT'])
+@teacher_required
+def rename_test_group(group_id):
+    return _save_group(TestGroup.query.get_or_404(group_id))
+
+
+@tests_bp.route('/api/test-groups/<int:group_id>', methods=['DELETE'])
+@teacher_required
+def delete_test_group(group_id):
+    group = TestGroup.query.filter_by(id=group_id).with_for_update().first_or_404()
+    # Also detach explicitly on databases where foreign keys are not enforced.
+    Test.query.filter_by(group_id=group.id).update({'group_id': None})
+    db.session.delete(group)
+    db.session.commit()
+    return '', 204
+
+
+@tests_bp.route('/api/tests/<int:test_id>/group', methods=['PUT'])
+@teacher_required
+def move_test_to_group(test_id):
+    test = Test.query.filter_by(id=test_id).with_for_update().first_or_404()
+    data = request.get_json()
+    if not isinstance(data, dict) or 'group_id' not in data:
+        return jsonify({'error': 'Укажите группу или выберите «Без группы»'}), 422
+    try:
+        test.group_id = _group_id(data['group_id'])
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 422
+    db.session.commit()
+    return jsonify(_test_to_dict(test))
 
 
 def _time_limit_conflict(test, data):
@@ -143,6 +215,7 @@ def _test_to_dict(test, include_variants=False):
         'time_limit': test.time_limit,
         'is_active': test.is_active,
         'created_by': test.created_by,
+        'group_id': test.group_id,
         'created_at': utc_iso(test.created_at),
         'variant_count': len(test.variants),
         'attempt_count': len(test.attempts),
@@ -200,7 +273,12 @@ def create_test():
     if data is None:
         return jsonify({'error': 'JSON required'}), 400
     try:
-        test = _parse_and_create_test(data)
+        if not isinstance(data, dict):
+            raise ValueError('JSON должен содержать объект теста')
+        payload = dict(data)
+        group_id = _group_id(payload.pop('group_id', None))
+        test = _parse_and_create_test(payload)
+        test.group_id = group_id
         db.session.add(test)
         db.session.commit()
         return jsonify(_test_to_dict(test)), 201

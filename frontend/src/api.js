@@ -17,6 +17,11 @@ export default {
   logout: () => api.get('/auth/logout', { baseURL: '' }),
   // Tests (teacher)
   getTests: () => api.get('/tests'),
+  getTestGroups: () => api.get('/test-groups'),
+  createTestGroup: (name) => api.post('/test-groups', { name }),
+  renameTestGroup: (id, name) => api.put(`/test-groups/${id}`, { name }),
+  deleteTestGroup: (id) => api.delete(`/test-groups/${id}`),
+  moveTestToGroup: (id, groupId) => api.put(`/tests/${id}/group`, { group_id: groupId }),
   createTest: (data) => api.post('/tests', data),
   getTest: (id) => api.get(`/tests/${id}`),
   updateTest: (id, data) => api.put(`/tests/${id}`, data),

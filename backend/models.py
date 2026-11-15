@@ -12,6 +12,14 @@ class User(db.Model):
     last_login = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class TestGroup(db.Model):
+    __tablename__ = 'test_groups'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False, unique=True)
+
+    tests = db.relationship('Test', back_populates='group', passive_deletes=True)
+
+
 class Test(db.Model):
     __tablename__ = 'tests'
     id = db.Column(db.Integer, primary_key=True)
@@ -24,7 +32,9 @@ class Test(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     source_json = db.Column(db.Text, nullable=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('test_groups.id', ondelete='SET NULL'), nullable=True, index=True)
 
+    group = db.relationship('TestGroup', back_populates='tests')
     variants = db.relationship('Variant', backref='test', cascade='all, delete-orphan', order_by='Variant.order')
     creator = db.relationship('User', backref='tests')
 

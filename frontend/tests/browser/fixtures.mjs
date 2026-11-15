@@ -49,6 +49,7 @@ export async function mockPlatform(page, role = 'student') {
     }
     if (path === '/api/my-attempts' || path === '/api/tests/1/attempts') return route.fulfill({ json: [state.attempt] })
     if (path === '/api/tests') return route.fulfill({ json: [state.test] })
+    if (path === '/api/test-groups') return route.fulfill({ json: [] })
     if (path === '/api/tests/1/activate' || path === '/api/tests/1/deactivate') {
       state.test.is_active = path.endsWith('/activate')
       if (!state.test.is_active) state.attempt.finished_at = new Date().toISOString()
