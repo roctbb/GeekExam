@@ -117,6 +117,14 @@ def test_bad_or_unknown_association_cannot_become_complete_offline_observation()
     with pytest.raises(RouterError): Observer(rci, ["Bridge1"]).read()
 
 
+def test_associated_client_waiting_for_dhcp_has_no_ipv4_and_name_is_sanitized():
+    rci = FakeRci()
+    rci.hosts[0].update(ip="0.0.0.0",name="Device\x00\nname")
+    records = Observer(rci, ["Bridge1"]).read()
+    assert len(records) == 1
+    assert records[0]["ip"] is None and records[0]["name"] == "Devicename"
+
+
 def test_external_ipv6_is_rejected_and_rule_readback_checks_order(policy, observed):
     local_ipv6_only({"route6":[{"destination":"fd7c:2a18:4239::/64","interface":"Bridge0"}]})
     with pytest.raises(RouterError): local_ipv6_only({"route6":[{"destination":"::/0","interface":"ISP"}]})

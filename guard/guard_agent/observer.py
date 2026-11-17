@@ -56,12 +56,16 @@ class Observer:
             address = host.get("ip")
             if address:
                 try:
-                    address = str(ipaddress.IPv4Address(address))
+                    parsed = ipaddress.IPv4Address(address)
                 except (ValueError, TypeError):
                     raise RouterError("invalid_hotspot_ip") from None
-                if address in seen_ips:
+                if parsed.is_multicast or parsed.is_loopback:
+                    raise RouterError("invalid_hotspot_ip")
+                address = None if parsed.is_unspecified else str(parsed)
+                if address and address in seen_ips:
                     raise RouterError("duplicate_active_ip")
-                seen_ips.add(address)
+                if address:
+                    seen_ips.add(address)
             else:
                 address = None
             age = uptime(station.get("uptime"))
@@ -75,6 +79,6 @@ class Observer:
             epoch = previous["epoch"] if continuous else str(uuid.uuid4())
             current[mac] = {"context": context, "age": age, "epoch": epoch}
             records.append({"mac": mac, "ip": address, "interface": interface, "epoch": epoch,
-                            "name": str(host.get("name") or host.get("hostname") or "")[:160]})
+                            "name": "".join(c for c in str(host.get("name") or host.get("hostname") or "") if ord(c) >= 32)[:160]})
         self.previous, self.last_complete = current, time.monotonic()
         return records
