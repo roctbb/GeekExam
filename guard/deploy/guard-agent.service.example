@@ -1,0 +1,21 @@
+[Unit]
+Description=Geekclass Guard LAN observer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=guard-agent
+WorkingDirectory=/opt/guard
+ExecStart=/usr/bin/python3 -m guard_agent run --config /etc/guard-agent/agent.json
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/guard-agent
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

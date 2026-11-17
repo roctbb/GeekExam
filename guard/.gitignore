@@ -1,0 +1,9 @@
+.env
+instance/
+web/node_modules/
+web/dist/
+*.db
+*.sqlite*
+.pytest_cache/
+__pycache__/
+*.pyc

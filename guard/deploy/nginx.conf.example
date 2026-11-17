@@ -1,0 +1,34 @@
+server {
+    listen 80;
+    server_name guard.geekclass.ru;
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+    }
+    location / {
+        return 301 https://guard.geekclass.ru$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name guard.geekclass.ru;
+    ssl_certificate /etc/letsencrypt/live/guard.geekclass.ru/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/guard.geekclass.ru/privkey.pem;
+    client_max_body_size 1m;
+
+    # The legacy CP callback carries a short-lived JWT in the query string.
+    location = /auth/callback {
+        access_log off;
+        proxy_pass http://127.0.0.1:8088;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $remote_addr;
+    }
+    location / {
+        proxy_pass http://127.0.0.1:8088;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_read_timeout 35s;
+    }
+}

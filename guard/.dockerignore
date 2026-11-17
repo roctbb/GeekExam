@@ -1,0 +1,11 @@
+.env
+.venv
+instance
+web/node_modules
+web/dist
+**/__pycache__
+.pytest_cache
+tests
+scripts
+*.sqlite*
+*.db

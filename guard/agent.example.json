@@ -1,0 +1,8 @@
+{
+  "guard_url": "https://guard.geekclass.ru",
+  "router_url": "http://192.168.2.1",
+  "username": "admin",
+  "interfaces": ["Bridge1"],
+  "student_interfaces": ["Bridge1"],
+  "experimental_ipv4_enforcement": false
+}
