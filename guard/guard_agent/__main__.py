@@ -72,10 +72,7 @@ def run(config, config_path, *, enforce=False, once=False):
     driver = Enforcer(config["router_url"], config.get("username", "admin"), password, timeout=4,
                       router_id=config["router_id"], interfaces=config["student_interfaces"]) if enforce else None
     mode, boot, sequence = "enforce" if enforce else "observe", str(uuid.uuid4()), 0
-    proof_server = None
-    if config.get('browser_proof'):
-        proof_server = LanProofServer(config['browser_proof'], GuardClient(config['guard_url'],config['token'],timeout=4), observe, boot)
-        proof_server.start()
+    proof_server, proof_retry_at = None, 0
     cache_path = Path(str(config_path) + ".policy.json")
     policy, anchored_at, server_time, last_report, last_message = None, None, None, None, None
     if driver and cache_path.exists():
@@ -98,6 +95,13 @@ def run(config, config_path, *, enforce=False, once=False):
     try:
         while not stopping:
             start = time.monotonic()
+            if config.get('browser_proof') and proof_server is None and start >= proof_retry_at:
+                try:
+                    proof_server = LanProofServer(config['browser_proof'],GuardClient(config['guard_url'],config['token'],timeout=4),observe,boot)
+                    proof_server.start()
+                except (RouterError,OSError,ValueError,KeyError,TypeError):
+                    proof_server, proof_retry_at = None, start+60
+                    print('{"status":"lan_listener_unavailable"}',flush=True)
             if proof_server:
                 try:
                     proof_server.reload_certificates()
