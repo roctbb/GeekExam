@@ -31,6 +31,44 @@ test('oversized code paste is rejected while keeping the previous code editable'
   expect(state.saves.at(-1).code.length).toBeLessThan(50000)
 })
 
+test('a single submission mode opens its editor without a picker', async ({ page }) => {
+  const state = await mockPlatform(page)
+  Object.assign(state.attempt.questions[0], {
+    type: 'code_input', check_type: 'docker', ui_config: { starter_code: 'int main() {}' },
+    submission_config: { lang: 'cpp', allowed_languages: ['cpp', 'python'], submission_modes: ['code'] },
+  })
+  state.attempt.answers[0].value = { mode: 'files', text: 'Черновик' }
+  await page.route('**/api/answers/1/files', route => route.fulfill({ json: { items: [] } }))
+  await page.goto('/attempt/1')
+
+  const editor = page.getByRole('textbox', { name: 'Код решения' })
+  await expect(editor).toHaveText('int main() {}')
+  await expect(page.getByRole('combobox', { name: /^Способ сдачи/ })).toHaveCount(0)
+  await expect(page.getByRole('combobox', { name: /^Язык/ })).toHaveValue('cpp')
+  await editor.press('End')
+  await page.keyboard.insertText(' // draft')
+  await expect.poll(() => state.saves.at(-1)).toMatchObject({ mode: 'code', code: 'int main() {} // draft' })
+})
+
+test('teacher preview shows the submission picker only when there is a choice', async ({ page }) => {
+  const state = await mockPlatform(page, 'teacher')
+  const question = state.test.variants[0].questions[0]
+  Object.assign(question, {
+    type: 'code_input', check_type: 'docker', ui_config: { starter_code: 'int main() {}' },
+    check_config: { lang: 'cpp', submission_modes: ['code'] },
+  })
+  await page.goto('/admin/tests/1/preview')
+  await expect(page.getByRole('textbox', { name: 'Код решения' })).toHaveText('int main() {}')
+  const picker = page.getByRole('combobox', { name: /^Способ сдачи/ })
+  await expect(picker).toHaveCount(0)
+
+  question.check_config.submission_modes = ['code', 'files']
+  await page.reload()
+  await expect(picker).toHaveValue('code')
+  await picker.selectOption('files')
+  await expect(page.getByLabel('Добавить файлы')).toBeVisible()
+})
+
 test('an oversized legacy server answer is not inserted into a native text input', async ({ page }) => {
   const state = await mockPlatform(page)
   Object.assign(state.attempt.questions[0], { type: 'multi_input',
