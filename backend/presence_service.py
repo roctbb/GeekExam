@@ -95,7 +95,9 @@ def ingest_guard(config,attempts,data,at):
     by_session={item['session_id']:item for item in data['items']}
     routers=data['room'].get('routers',[])
     complete=data.get('history_complete') is True
+    cutoff=max((attempt.finished_at for attempt in attempts),default=at) if all(a.finished_at for a in attempts) else at
     for raw in data['events']:
+        if parse(raw['occurred_at'])>cutoff:continue
         if raw['kind']=='source_lost':
             event(config.test_id,'source-gap:'+raw['router_id']+':'+raw['occurred_at'],'guard_source_lost',
                 parse(raw['occurred_at']),router_id=raw['router_id'],last_confirmed=parse(raw.get('last_confirmed_at')),
@@ -108,7 +110,7 @@ def ingest_guard(config,attempts,data,at):
         elif raw['kind']=='agent_restarted':
             event(config.test_id,'guard:'+raw['id'],'agent_restarted',parse(raw['occurred_at']),
                 router_id=raw['router_id'],details={'scope':'classroom'})
-    for router in routers:
+    for router in routers if any(not a.finished_at for a in attempts) else []:
         if not router.get('fresh') and router.get('unavailable_since'):
             event(config.test_id,'source-gap:'+router['id']+':'+router['unavailable_since'],'guard_source_lost',
                 parse(router['unavailable_since']),router_id=router['id'],last_confirmed=parse(router.get('observed_at')),
@@ -159,6 +161,7 @@ def ingest_guard(config,attempts,data,at):
 
 def mark_guard_unavailable(config,attempts,reason,at):
     # The service connection is missing; this is never an individual departure.
+    if not any(not attempt.finished_at for attempt in attempts):return
     open_gap=db.session.execute(db.select(PresenceEvent).where(PresenceEvent.test_id==config.test_id,
         PresenceEvent.kind=='guard_service_unavailable',PresenceEvent.ended_at.is_(None))).scalars().first()
     if not open_gap:event(config.test_id,'service-gap:'+utc_iso(at),'guard_service_unavailable',at,details={'reason':reason,'scope':'classroom'})
@@ -177,9 +180,11 @@ def collect_test(config):
     attempts=db.session.execute(db.select(Attempt).where(Attempt.test_id==config.test_id,active)).scalars().all()
     if not attempts:return
     data,error=None,None
+    initial_states={row.attempt_id:row.guard_session_id for row in db.session.execute(
+        db.select(AttemptPresence).where(AttemptPresence.attempt_id.in_([a.id for a in attempts]))).scalars()}
     if room_id:
-        states=[ensure_attempt(attempt) for attempt in attempts]
-        sessions=list(dict.fromkeys(row.guard_session_id for row in states if row.guard_session_id))
+        # Never create/flush rows or hold row locks while waiting on Guard.
+        sessions=list(dict.fromkeys(value for value in initial_states.values() if value))
         try:
             if len(sessions)>200:raise guard_client.GuardUnavailable('too_many_bindings')
             since=min(attempt.started_at for attempt in attempts)
@@ -201,7 +206,11 @@ def collect_test(config):
             if error:raise guard_client.GuardUnavailable(error)
             # A malformed response cannot leave partially applied evidence behind.
             with db.session.begin_nested():
-                ingest_guard(config,attempts,data,now())
+                stable=[]
+                for attempt in attempts:
+                    state=db.session.get(AttemptPresence,attempt.id,populate_existing=True)
+                    if (state.guard_session_id if state else None)==initial_states.get(attempt.id):stable.append(attempt)
+                ingest_guard(config,stable,data,now())
             for row in db.session.execute(db.select(PresenceEvent).where(PresenceEvent.test_id==config.test_id,
                 PresenceEvent.kind=='guard_service_unavailable',PresenceEvent.ended_at.is_(None))).scalars():row.ended_at=now()
         except (guard_client.GuardUnavailable,ValueError,KeyError,TypeError) as error:
