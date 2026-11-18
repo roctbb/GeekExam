@@ -16,6 +16,12 @@ from time_utils import utc_iso
 presence_bp = Blueprint('presence', __name__, url_prefix='/api')
 
 
+@presence_bp.after_request
+def private_connection_evidence(response):
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
 def body(allowed):
     data = request.get_json(silent=True)
     if not isinstance(data, dict) or set(data) - set(allowed):

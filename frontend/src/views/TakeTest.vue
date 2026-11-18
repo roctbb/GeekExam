@@ -17,6 +17,10 @@
       <span v-if="presenceState.code"> · Код подключения: <strong>{{ presenceState.code }}</strong></span>
       <span v-if="presenceState.state === 'offline' && presenceState.lastAck"> · Последнее подтверждение: {{ new Date(presenceState.lastAck).toLocaleTimeString('ru') }}</span>
     </div>
+    <div v-if="!store.attempt.finished_at && !['idle','disabled'].includes(deviceProofState)" class="small text-muted mb-2" role="status">
+      {{ deviceProofState === 'bound' ? 'Устройство привязано к попытке' : deviceProofState === 'checking' ? 'Определяем устройство в сети кабинета…' : deviceProofState === 'different_device' ? 'Эта попытка уже открыта на другом устройстве. Сообщите преподавателю.' : 'Сетевое подтверждение устройства пока не получено.' }}
+      <button v-if="deviceProofState === 'unavailable'" class="btn btn-link btn-sm p-0 ms-1" @click="deviceBinder?.retry()">Повторить определение</button>
+    </div>
     <div v-if="saveClosed" class="alert alert-warning" role="alert">
       Тест завершён. Показанный черновик может отличаться от отправленных ответов. Скопируйте нужный текст перед выходом.
       <button class="btn btn-sm btn-outline-secondary ms-2" @click="openClosedResults">Открыть результаты</button>
@@ -102,6 +106,7 @@ import { createLiveRefresh } from '../utils/liveRefresh'
 import { validateAnswerSize } from '../utils/answerLimits'
 import { createAttemptTimer } from '../utils/attemptTimer'
 import { createAttemptPresence } from '../utils/attemptPresence'
+import { createAutoDeviceBinding } from '../utils/autoDeviceBinding'
 import IntermediateCheckButton from '../components/IntermediateCheckButton.vue'
 import SubmissionAnswer from '../components/SubmissionAnswer.vue'
 import ExecutionResult from '../components/ExecutionResult.vue'
@@ -122,6 +127,8 @@ const router = useRouter()
 const store = useAttemptStore()
 const presenceState = ref({ state: 'connecting', code: '', lastAck: null })
 let presence
+const deviceProofState = ref('idle')
+let deviceBinder
 const activeTab = ref(0)
 const timeLeft = ref(null)
 const finishing = ref(false)
@@ -231,6 +238,7 @@ async function onIntermediateCheck() {
 
 function showFinished(data) {
   presence?.stop()
+  deviceBinder?.stop()
   store.attempt.finished_at = data.finished_at || store.attempt.finished_at || new Date().toISOString()
   stopTimer()
   live?.stop()
@@ -407,14 +415,21 @@ async function loadAttempt() {
   startTimer(store.attempt)
   if (store.attempt.finished_at) { showFinished(store.attempt); return }
   presence?.stop()
+  deviceBinder?.stop()
   let presenceStorage
   try { presenceStorage = window.sessionStorage } catch { /* Private mode can block storage. */ }
+  deviceBinder = createAutoDeviceBinding({
+    start: async data => (await api.startDeviceProof(route.params.id,data)).data,
+    finish: async data => (await api.finishDeviceProof(route.params.id,data)).data,
+    onChange: value => { deviceProofState.value = value.state },
+  })
   presence = createAttemptPresence({
     attemptId: route.params.id,
     register: async data => (await api.registerPresence(route.params.id, data)).data,
     heartbeat: async data => (await api.heartbeat(route.params.id, data)).data,
     storage: presenceStorage, visible: () => document.visibilityState === 'visible',
     onChange: value => { presenceState.value = value },
+    onReady: value => deviceBinder.begin(value),
   })
   presence.start()
   live = createLiveRefresh({
@@ -443,6 +458,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   presence?.stop()
+  deviceBinder?.stop()
   disposed = true
   stopTimer()
   saver.dispose()

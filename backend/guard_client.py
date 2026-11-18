@@ -14,7 +14,7 @@ def configured(): return bool(config.GUARD_URL and config.GUARD_SERVICE_SECRET)
 
 
 def call(path,actor_id,**payload):
-    if path not in {'rooms','snapshot'}:raise ValueError('Unsupported Guard operation')
+    if path not in {'rooms','snapshot','proofs/start','proofs/consume'}:raise ValueError('Unsupported Guard operation')
     if not configured():raise GuardUnavailable('not_configured')
     parsed=urlsplit(config.GUARD_URL)
     local=parsed.hostname in {'127.0.0.1','localhost','::1'}

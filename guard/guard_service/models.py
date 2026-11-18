@@ -121,6 +121,35 @@ class StudentRule(db.Model):
     created_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
 
 
+class LocalProofEndpoint(db.Model):
+    router_id = db.Column(db.String(36), db.ForeignKey("router.id"), primary_key=True)
+    origin = db.Column(db.String(250), nullable=False)
+    enabled = db.Column(db.Boolean, nullable=False, default=False)
+    version = db.Column(db.Integer, nullable=False, default=1)
+    __mapper_args__ = {"version_id_col": version}
+
+
+class BrowserProof(db.Model):
+    id = db.Column(db.String(36), primary_key=True, default=uid)
+    token_digest = db.Column(db.String(64), nullable=False, unique=True)
+    room_id = db.Column(db.String(36), db.ForeignKey("room.id"), nullable=False)
+    router_id = db.Column(db.String(36), db.ForeignKey("router.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    actor_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    attempt_id = db.Column(db.Integer, nullable=False, index=True)
+    client_id = db.Column(db.String(36), nullable=False)
+    browser_origin = db.Column(db.String(250), nullable=False)
+    endpoint_origin = db.Column(db.String(250), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+    completed_at = db.Column(db.DateTime)
+    consumed_at = db.Column(db.DateTime)
+    device_id = db.Column(db.String(36), db.ForeignKey("device.id"))
+    session_id = db.Column(db.String(36), db.ForeignKey("network_session.id"))
+    boot_id = db.Column(db.String(80))
+    epoch = db.Column(db.String(100))
+
+
 class DeviceOverride(db.Model):
     device_id = db.Column(db.String(36), db.ForeignKey("device.id"), primary_key=True)
     expires_at = db.Column(db.DateTime)

@@ -240,6 +240,13 @@ async function toggleRestriction() {
 async function open(kind, item) {
   error.value = "";
   enrollment.value = null;
+  if (kind === 'proof') {
+    try {
+      form.value = { router: item, ...await api(`/api/v1/routers/${item.id}/browser-proof`) };
+      dialog.value = kind;
+    } catch (e) { error.value = e.message; }
+    return;
+  }
   if (kind === "members" || kind === "binding") {
     if (admin.value) {
       try {
@@ -293,7 +300,11 @@ async function save() {
     room = current.value,
     kind = dialog.value;
   await act(async () => {
-    if (kind === "room") {
+    if (kind === 'proof') {
+      await api(`/api/v1/routers/${f.router.id}/browser-proof`, {
+        method: 'PUT', body: JSON.stringify({origin:f.origin, enabled:f.enabled, version:f.version}),
+      });
+    } else if (kind === "room") {
       const created = await api("/api/v1/rooms", {
         method: "POST",
         body: JSON.stringify({ name: f.name, description: f.description }),
@@ -846,6 +857,7 @@ onUnmounted(() => {
                   соединений не подтверждён.
                 </p>
                 <div v-if="admin" class="router-actions">
+                  <button class="button" @click="open('proof', router)">Автопривязка GeekExam</button>
                   <button class="button" @click="enroll(router)">
                     Подключить агента</button
                   ><button class="text-button" @click="open('move', router)">
@@ -904,6 +916,7 @@ onUnmounted(() => {
             override: 'Исключение устройства',
             enroll: 'Подключение агента',
             move: 'Перенос роутера',
+            proof: 'Автопривязка GeekExam',
           }[dialog]
         "
       >
@@ -923,11 +936,19 @@ onUnmounted(() => {
               override: "Исключение устройства",
               enroll: "Подключение агента",
               move: "Перенос роутера",
+              proof: "Автопривязка GeekExam",
             }[dialog]
           }}
         </h2>
         <div v-if="error" class="alert error">{{ error }}</div>
         <form v-if="dialog !== 'enroll'" @submit.prevent="save">
+          <template v-if="dialog === 'proof'">
+            <p>{{ form.router.name }}</p>
+            <label>Адрес локального агента HTTPS<input v-model="form.origin" type="url" required maxlength="250" placeholder="https://lan-409.guard.geekclass.ru:18766"></label>
+            <label class="check"><input v-model="form.enabled" type="checkbox">Разрешить автоматическое определение устройств</label>
+            <p class="muted">Сначала настройте локальный адрес агента, DNS и доверенный TLS-сертификат. Этот адрес должен быть доступен ученикам из сети кабинета. Пароль роутера и пароль Coding Projects в браузер не передаются.</p>
+            <p class="muted">Настройка применяется только к выбранному роутеру. Первый запрос может вызвать разрешение браузера на доступ к локальной сети.</p>
+          </template>
           <template v-if="dialog === 'room'"
             ><label
               >Название кабинета<input

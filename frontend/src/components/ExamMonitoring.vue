@@ -65,7 +65,7 @@
       <p v-if="historyLoading && !events.length" class="text-muted small">Загрузка…</p>
       <p v-else-if="!events.length" class="text-muted small">Событий пока нет.</p>
       <article v-for="event in events" :key="event.id" class="border rounded p-3 mb-2" :class="{ 'border-warning': event.review_required && !event.reviewed_at }">
-        <div class="d-flex gap-2 align-items-center flex-wrap"><strong>{{ titles[event.kind] || event.kind }}</strong><span v-if="event.review_required" class="badge" :class="event.reviewed_at ? 'bg-secondary' : 'bg-warning text-dark'">{{ event.reviewed_at ? 'Просмотрено' : 'Требует проверки' }}</span></div>
+        <div class="d-flex gap-2 align-items-center flex-wrap"><strong>{{ event.kind === 'binding_confirmed' && event.details?.method === 'browser_lan_proof' ? 'Устройство определено локальным агентом' : titles[event.kind] || event.kind }}</strong><span v-if="event.review_required" class="badge" :class="event.reviewed_at ? 'bg-secondary' : 'bg-warning text-dark'">{{ event.reviewed_at ? 'Просмотрено' : 'Требует проверки' }}</span></div>
         <dl class="small mb-0 mt-2 event-times">
           <dt>Событие с</dt><dd>{{ fmt(event.started_at) }}</dd>
           <template v-if="event.last_confirmed_at"><dt>До обрыва подтверждено</dt><dd>{{ fmt(event.last_confirmed_at) }}</dd></template>
@@ -97,7 +97,7 @@ const emit = defineEmits(['refresh'])
 const settings = ref(false), rooms = ref([]), roomId = ref(null), enabled = ref(true), dirty = ref(false), draftVersion = ref(0), saving = ref(false), actionError = ref('')
 const dialog = ref(null), selected = ref(null), events = ref([]), historyLoading = ref(false), historyError = ref(''), notes = ref({}), reviewing = ref(null)
 const candidates = ref([]), candidateError = ref(''), candidateLoading = ref(false), sessionId = ref(''), clientId = ref(''), confirmed = ref(false), binding = ref(false)
-const titles = { exam_disconnected: 'GeekExam перестал получать ответы о связи', device_disconnected: 'Устройство отсутствует в сети Guard', binding_confirmed: 'Устройство подтверждено преподавателем', binding_changed: 'Привязка устройства изменена', guard_source_lost: 'Нет связи с роутером или агентом', guard_service_unavailable: 'Нет связи с сервисом Guard', mass_disconnect: 'Массовое отключение устройств' }
+const titles = { device_mismatch: 'Попытка открыта с другого устройства', exam_disconnected: 'GeekExam перестал получать ответы о связи', device_disconnected: 'Устройство отсутствует в сети Guard', binding_confirmed: 'Устройство подтверждено преподавателем', binding_changed: 'Привязка устройства изменена', guard_source_lost: 'Нет связи с роутером или агентом', guard_service_unavailable: 'Нет связи с сервисом Guard', mass_disconnect: 'Массовое отключение устройств' }
 const reasons = { binding_expired: 'Сетевая сессия истекла: нужна новая привязка.', binding_revoked: 'Сетевая привязка снята.', connection_changed: 'Сетевая сессия изменилась: проверьте устройство.', agent_restarted: 'Агент перезапущен: нужна новая привязка.', agent_not_reporting: 'Агент не передаёт данные.', access_denied: 'У Guard нет действующего разрешения для этого кабинета.', guard_unavailable: 'Сервис Guard не отвечает.' }
 const current = computed(() => props.data?.attempts?.find(a => a.attempt_id === selected.value?.id))
 const roomName = computed(() => props.data?.config?.room_name || rooms.value.find(r => r.id === props.data?.config?.room_id)?.name || 'выбран')

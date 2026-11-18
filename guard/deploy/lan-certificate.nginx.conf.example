@@ -1,0 +1,7 @@
+# ACME HTTP-01 only. The browser-proof listener itself stays inside the classroom.
+server {
+    listen 80;
+    server_name lan-409.guard.geekclass.ru;
+    location /.well-known/acme-challenge/ { root /var/www/letsencrypt; }
+    location / { return 404; }
+}

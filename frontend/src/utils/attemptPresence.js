@@ -1,6 +1,6 @@
 // These messages prove only server contact for this attempt, not physical presence.
 export function createAttemptPresence({ attemptId, register, heartbeat, storage, visible = () => true,
-  onChange = () => {}, now = Date.now, schedule = setTimeout, cancel = clearTimeout }) {
+  onChange = () => {}, onReady = () => {}, now = Date.now, schedule = setTimeout, cancel = clearTimeout }) {
   const key = `geekexam:presence:${attemptId}`
   let stopped = true, timer, credentials, sequence, pending, running = false, lastAck = null
   let state = { state: 'connecting', code: '', lastAck: null }
@@ -35,6 +35,7 @@ export function createAttemptPresence({ attemptId, register, heartbeat, storage,
       pending = null
       lastAck = now()
       publish({ state: 'online', lastAck })
+      onReady({...credentials})
     } catch (error) {
       if (stopped) return
       if (error?.response?.status === 410) { publish({ state: 'finished' }); stopped = true; return }

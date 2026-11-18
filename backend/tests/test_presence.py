@@ -7,6 +7,7 @@ from flask import Flask
 from models import db, User, Test, Variant, Attempt
 from presence_models import PresenceConfig, PresenceEvent, AttemptPresence, PresenceClient, PresenceHeartbeat
 from routes.presence import presence_bp
+import routes.presence_auto
 import presence_service as service
 from time_utils import utc_iso
 
@@ -209,6 +210,44 @@ class PresenceTests(unittest.TestCase):
         self.assertEqual(self.teacher.put('/api/tests/1/presence',json=payload,headers={'Origin':'https://evil.example'}).status_code,403)
         self.assertEqual(self.teacher.put('/api/tests/1/presence',json={**payload,'enabled':False}).status_code,200)
         self.assertEqual(self.teacher.put('/api/tests/1/presence',json=payload).status_code,409)
+
+    def test_automatic_binding_requires_the_attempt_owner_and_exact_client(self):
+        credentials=self.register()
+        self.assertEqual(self.teacher.post('/api/attempts/1/presence/auto/start',json=credentials).status_code,403)
+        self.assertEqual(self.student.post('/api/attempts/1/presence/auto/start',json={**credentials,'token':'wrong'}).status_code,403)
+
+    def test_automatic_first_binding_uses_guard_proof_and_preserves_original_on_new_device(self):
+        credentials=self.register()
+        with self.app.app_context():
+            db.session.get(PresenceConfig,1).guard_room_id='room';db.session.commit()
+        candidate={'session_id':'s','device_id':'d','router_id':'r','user_id':2,'method':'browser_lan_proof',
+            'last_confirmed_at':utc_iso(self.clock),'proved_at':utc_iso(self.clock)}
+        with patch('guard_client.call',return_value=candidate):
+            response=self.student.post('/api/attempts/1/presence/auto/finish',json={**credentials,'proof_id':'proof-one'})
+            self.assertEqual(response.status_code,200)
+        with self.app.app_context():self.assertEqual(db.session.get(AttemptPresence,1).guard_device_id,'d')
+        self.assertEqual(self.events()[0]['details']['method'],'browser_lan_proof')
+        with patch('guard_client.call',return_value={**candidate,'device_id':'different'}):
+            response=self.student.post('/api/attempts/1/presence/auto/finish',json={**credentials,'proof_id':'proof-two'})
+            self.assertEqual(response.json['state'],'different_device')
+        with self.app.app_context():self.assertEqual(db.session.get(AttemptPresence,1).guard_device_id,'d')
+        self.assertTrue(any(e['kind']=='device_mismatch' and e['review_required'] for e in self.events()))
+
+    def test_auto_binding_does_not_replace_a_changed_network_session_within_same_attempt(self):
+        credentials=self.setup_binding()
+        with self.app.app_context():
+            state=db.session.get(AttemptPresence,1);state.guard_device_id='d';state.guard_router_id='r';db.session.commit()
+        candidate={'session_id':'new-session','device_id':'d','router_id':'r','user_id':2,'method':'browser_lan_proof',
+            'last_confirmed_at':utc_iso(self.clock),'proved_at':utc_iso(self.clock)}
+        with patch('guard_client.call',return_value=candidate):
+            self.assertEqual(self.student.post('/api/attempts/1/presence/auto/finish',json={**credentials,'proof_id':'p'}).status_code,200)
+        with self.app.app_context():self.assertEqual(db.session.get(AttemptPresence,1).guard_session_id,'session')
+
+    def test_finished_attempt_and_expired_proof_cannot_auto_bind(self):
+        credentials=self.register()
+        with self.app.app_context():
+            db.session.get(Attempt,1).finished_at=self.clock;db.session.commit()
+        self.assertEqual(self.student.post('/api/attempts/1/presence/auto/start',json=credentials).status_code,410)
 
 
 if __name__=='__main__':unittest.main()

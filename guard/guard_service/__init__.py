@@ -25,6 +25,7 @@ def create_app(settings=None):
         CP_JWT_AUDIENCE=os.getenv("GUARD_CP_JWT_AUDIENCE") or None,
         CP_SERVICE_SECRET=os.getenv("GUARD_CP_SERVICE_SECRET"),
         EXAM_SERVICE_SECRET=os.getenv("GUARD_EXAM_SERVICE_SECRET"),
+        EXAM_ORIGIN=os.getenv("GUARD_EXAM_ORIGIN", "https://exam.geekclass.ru"),
         ROLE_TTL_SECONDS=900, PRESENCE_TTL_SECONDS=20, NOW=utcnow,
         SESSION_COOKIE_NAME="guard_session", SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_SECURE=True,
@@ -56,6 +57,8 @@ def create_app(settings=None):
     app.register_blueprint(auth)
     app.register_blueprint(api)
     app.register_blueprint(agents)
+    from .browser_proof import proof_api
+    app.register_blueprint(proof_api)
     from .exam_presence import exam_presence
     app.register_blueprint(exam_presence)
     from .cli import register
@@ -107,5 +110,14 @@ def create_app(settings=None):
         """Create the initial schema for a new Guard database."""
         db.create_all()
         print("Guard schema initialized")
+
+    @app.cli.command('upgrade-browser-proof-schema')
+    def upgrade_browser_proof_schema():
+        """Add only the two proof tables, preserving every existing Guard table."""
+        from .models import LocalProofEndpoint, BrowserProof
+        with db.engine.begin() as connection:
+            LocalProofEndpoint.__table__.create(connection,checkfirst=True)
+            BrowserProof.__table__.create(connection,checkfirst=True)
+        print('Browser proof schema ready (additive only)')
 
     return app

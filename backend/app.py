@@ -8,6 +8,7 @@ from routes.attempts import attempts_bp
 from routes.answers import answers_bp
 from routes.executor import executor_bp
 from routes.presence import presence_bp
+import routes.presence_auto  # Register automatic binding before blueprint setup.
 from socket_events import register_socket_handlers
 
 app.register_blueprint(auth_bp)

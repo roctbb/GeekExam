@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>ru.geekclass.guard.lan-certificate</string>
+  <key>ProgramArguments</key><array>
+    <string>/Library/Frameworks/Python.framework/Versions/3.12/bin/python3</string>
+    <string>/Users/roctbb/Projects/GeekGuardAgent/guard/scripts/refresh_lan_certificate.py</string>
+    <string>--ssh-host</string><string>geekclass.ru</string>
+    <string>--remote-directory</string><string>/home/roctbb/deploy-config/guard-lan-409</string>
+    <string>--destination</string><string>/Users/roctbb/.config/geekguard/tls/challenger</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>StartInterval</key><integer>86400</integer>
+  <key>StandardOutPath</key><string>/Users/roctbb/.local/state/geekguard/certificate.stdout.log</string>
+  <key>StandardErrorPath</key><string>/Users/roctbb/.local/state/geekguard/certificate.stderr.log</string>
+</dict></plist>

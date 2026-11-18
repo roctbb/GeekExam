@@ -8,8 +8,10 @@ import json
 from pathlib import Path
 import re
 import signal
+import ssl
 import sys
 import time
+import threading
 from urllib.parse import urlsplit
 import uuid
 
@@ -18,6 +20,7 @@ from .observer import Observer
 from .policy import fingerprint, parse_time, validate_policy
 from .rci import RciClient, RouterError
 from .transport import GuardClient, private_read, private_write
+from .browser_proof import LanProofServer
 
 
 def config_read(path, *, enrolled=True):
@@ -62,9 +65,17 @@ def run(config, config_path, *, enforce=False, once=False):
     password = password_source(config)
     rci = RciClient(config["router_url"], config.get("username", "admin"), password, timeout=4)
     observer = Observer(rci, config["interfaces"])
+    observation_lock = threading.Lock()
+    def observe():
+        with observation_lock:
+            return observer.read()
     driver = Enforcer(config["router_url"], config.get("username", "admin"), password, timeout=4,
                       router_id=config["router_id"], interfaces=config["student_interfaces"]) if enforce else None
     mode, boot, sequence = "enforce" if enforce else "observe", str(uuid.uuid4()), 0
+    proof_server = None
+    if config.get('browser_proof'):
+        proof_server = LanProofServer(config['browser_proof'], GuardClient(config['guard_url'],config['token'],timeout=4), observe, boot)
+        proof_server.start()
     cache_path = Path(str(config_path) + ".policy.json")
     policy, anchored_at, server_time, last_report, last_message = None, None, None, None, None
     if driver and cache_path.exists():
@@ -87,9 +98,14 @@ def run(config, config_path, *, enforce=False, once=False):
     try:
         while not stopping:
             start = time.monotonic()
+            if proof_server:
+                try:
+                    proof_server.reload_certificates()
+                except (RouterError,OSError,ssl.SSLError):
+                    print('{"status":"lan_certificate_refresh_failed"}',flush=True)
             observations, source_error = [], None
             try:
-                observations = observer.read()
+                observations = observe()
             except (RouterError, OSError, ValueError, KeyError, TypeError) as exc:
                 source_error = str(exc) if isinstance(exc, RouterError) else "router_observation_failed"
             message = {"boot_id": boot, "sequence": sequence, "complete": source_error is None,
@@ -142,6 +158,8 @@ def run(config, config_path, *, enforce=False, once=False):
             while not stopping and time.monotonic()-start < 5:
                 time.sleep(.2)
     finally:
+        if proof_server:
+            proof_server.stop()
         if driver:
             print("Агент остановлен; установленные ACL оставлены. release снимает только ACL Guard.", flush=True)
     return 0

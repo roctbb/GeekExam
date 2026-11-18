@@ -41,6 +41,8 @@ export default {
   reviewPresenceEvent: (id, note) => api.post(`/presence/events/${id}/review`, { note }),
   registerPresence: (id, data) => api.post(`/attempts/${id}/presence/clients`, data, { timeout: 8000 }),
   heartbeat: (id, data) => api.post(`/attempts/${id}/presence/heartbeat`, data, { timeout: 8000 }),
+  startDeviceProof: (id,data) => api.post(`/attempts/${id}/presence/auto/start`,data,{timeout:10000}),
+  finishDeviceProof: (id,data) => api.post(`/attempts/${id}/presence/auto/finish`,data,{timeout:10000}),
   getWrongAnswers: (testId, questionId, signal) => api.get(`/tests/${testId}/questions/${questionId}/wrong-answers`, { signal }),
   // Attempts
   joinTest: (code) => api.post('/join', { code }),
