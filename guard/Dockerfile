@@ -6,8 +6,6 @@ COPY web/ ./
 RUN npm run build
 
 FROM python:3.12-slim
-ARG VCS_REF=unknown
-LABEL org.opencontainers.image.source="https://github.com/roctbb/GeekExam" org.opencontainers.image.revision=$VCS_REF
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY requirements.txt ./
@@ -18,4 +16,6 @@ RUN mkdir -p instance && chown guard:guard instance
 USER guard
 EXPOSE 8088
 HEALTHCHECK --interval=30s --timeout=5s CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8088/healthz', timeout=3)"
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.source="https://github.com/roctbb/GeekExam" org.opencontainers.image.revision=$VCS_REF
 CMD ["gunicorn", "--bind", "0.0.0.0:8088", "--workers", "2", "--threads", "4", "--timeout", "30", "guard_service:create_app()"]

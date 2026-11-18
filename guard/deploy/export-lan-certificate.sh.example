@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+# Install as root-owned /usr/local/sbin/guard-export-lan-certificate.
+# This hook never exports a certificate belonging to any other service.
+lineage=/etc/letsencrypt/live/lan-409.guard.geekclass.ru
+if [ -n "${RENEWED_LINEAGE:-}" ] && [ "$RENEWED_LINEAGE" != "$lineage" ]; then
+    exit 0
+fi
+destination=/home/roctbb/deploy-config/guard-lan-409
+install -d -m 0700 -o roctbb -g roctbb "$destination"
+install -m 0600 -o roctbb -g roctbb "$lineage/fullchain.pem" "$destination/fullchain.pem.new"
+install -m 0600 -o roctbb -g roctbb "$lineage/privkey.pem" "$destination/privkey.pem.new"
+mv "$destination/fullchain.pem.new" "$destination/fullchain.pem"
+mv "$destination/privkey.pem.new" "$destination/privkey.pem"
