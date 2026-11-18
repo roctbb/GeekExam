@@ -1,8 +1,8 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import {io} from 'socket.io-client'
 
-export function useResultList(fetchList, room) {
-  const attempts=ref([]),loading=ref(true),refreshing=ref(false),error=ref('')
+export function useResultList(fetchResults, room, initialData = []) {
+  const results=ref(initialData),loading=ref(true),refreshing=ref(false),error=ref('')
   const socket=io({path:'/socket.io',transports:['websocket'],autoConnect:false})
   let stopped=false,queued=false
   async function refresh() {
@@ -11,7 +11,7 @@ export function useResultList(fetchList, room) {
     refreshing.value=true
     do {
       queued=false
-      try {const {data}=await fetchList();if(!stopped && !queued){attempts.value=data;error.value=''}}
+      try {const {data}=await fetchResults();if(!stopped && !queued){results.value=data;error.value=''}}
       catch {if(!stopped)error.value='Не удалось обновить результаты. Проверьте соединение и повторите.'}
     } while(!stopped && queued)
     loading.value=false;refreshing.value=false
@@ -23,5 +23,5 @@ export function useResultList(fetchList, room) {
     document.addEventListener('visibilitychange',visible);window.addEventListener('online',refresh);refresh()
   })
   onUnmounted(()=>{stopped=true;socket.off('connect',connect);socket.off('attempt_list_updated',refresh);socket.disconnect();document.removeEventListener('visibilitychange',visible);window.removeEventListener('online',refresh)})
-  return {attempts,loading,refreshing,error,refresh}
+  return {results,loading,refreshing,error,refresh}
 }

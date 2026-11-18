@@ -31,7 +31,8 @@ export default {
   deactivateTest: (id) => api.post(`/tests/${id}/deactivate`),
   extendTestTime: (id, timeLimit, minutes = 15) => api.post(`/tests/${id}/extend-time`, { minutes, expected_time_limit: timeLimit }),
   setTestCode: (id, code) => api.put(`/tests/${id}/code`, { code }),
-  getTestAttempts: (id) => api.get(`/tests/${id}/attempts`),
+  getTestResults: (id) => api.get(`/tests/${id}/results`),
+  getWrongAnswers: (testId, questionId, signal) => api.get(`/tests/${testId}/questions/${questionId}/wrong-answers`, { signal }),
   // Attempts
   joinTest: (code) => api.post('/join', { code }),
   getAttempt: (id) => api.get(`/attempts/${id}`),

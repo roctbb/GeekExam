@@ -132,6 +132,85 @@ class PlatformRegressionTests(unittest.TestCase):
             self.assertEqual(response['started_at'], detail['started_at'])
             self.assertTrue(response['finished_at'].endswith('Z'))
 
+    def test_test_results_rank_graded_questions_across_variants(self):
+        finished_at = datetime.utcnow()
+        self.change(attempt={'finished_at': finished_at, 'is_checked': True},
+                    answer={'check_state': 'checked', 'points': 4.5})
+        with self.app.app_context():
+            test = db.session.get(Test, 1)
+            original = db.session.get(Question, 1)
+            second = Question(variant=original.variant, order=1, title='Second', type='text_input',
+                              max_points=10, check_type='manual')
+            other_variant = Variant(test=test, title='Other variant', order=1)
+            other_question = Question(variant=other_variant, title=original.title, type='text_input',
+                                      max_points=10, check_type='exact')
+            perfect = Attempt(test=test, variant=original.variant, user_id=3, max_points=20,
+                              finished_at=finished_at, is_checked=True)
+            blank = Attempt(test=test, variant=other_variant, user_id=4, max_points=10,
+                            finished_at=finished_at, is_checked=True)
+            active = Attempt(test=test, variant=other_variant, user_id=5, max_points=10, is_checked=True)
+            rechecking = Attempt(test=test, variant=other_variant, user_id=6, max_points=10,
+                                 finished_at=finished_at)
+            db.session.add_all([User(id=i, name=f'Student {i}', role='student') for i in (4, 5, 6)])
+            db.session.add_all([
+                Answer(attempt_id=1, question=second, points=0, check_state='error'),
+                Answer(attempt=perfect, question=original, points=10, check_state='checked'),
+                Answer(attempt=perfect, question=second, points=10, check_state='checked'),
+                Answer(attempt=blank, question=other_question, points=0, check_state='checked'),
+                Answer(attempt=active, question=other_question, points=10, check_state='checked'),
+                Answer(attempt=rechecking, question=other_question, points=10, check_state='checked'),
+            ])
+            db.session.commit()
+            other_question_id, second_id = other_question.id, second.id
+
+        url = '/api/tests/1/results'
+        self.assertEqual(self.client.get(url).status_code, 403)
+        teacher = self.login(1, 'teacher')
+        results = teacher.get(url).json
+        self.assertEqual(len(results['attempts']), 5)
+        self.assertEqual(results['question_summary'], [
+            dict(question_id=other_question_id, order=0, title='Question', variant_title='Other variant',
+                 below_max_count=1, graded_count=1),
+            dict(question_id=1, order=0, title='Question', variant_title='Variant',
+                 below_max_count=1, graded_count=2),
+            dict(question_id=second_id, order=1, title='Second', variant_title='Variant',
+                 below_max_count=0, graded_count=1),
+        ])
+
+        self.assertEqual(teacher.put('/api/answers/1/grade', json={'points': 10}).status_code, 200)
+        self.assertEqual(teacher.get(url).json['question_summary'][1]['below_max_count'], 0)
+
+    def test_common_wrong_answers_use_the_same_grades_as_the_summary(self):
+        finished_at = datetime.utcnow()
+        self.change(attempt={'finished_at': finished_at, 'is_checked': True},
+                    answer={'check_state': 'checked', 'points': 0, 'value': {'text': 'Синий'}})
+        with self.app.app_context():
+            question = db.session.get(Question, 1)
+            for user_id, value, points, is_checked in (
+                (3, {'text': ' синий  '}, 5, True),
+                (4, None, 0, True),
+                (5, {'text': 'синий'}, 10, True),
+                (6, {'text': 'синий'}, 0, False),
+            ):
+                if user_id > 3:
+                    db.session.add(User(id=user_id, name=f'Student {user_id}', role='student'))
+                attempt = Attempt(test_id=1, variant=question.variant, user_id=user_id, max_points=10,
+                                  finished_at=finished_at, is_checked=is_checked)
+                db.session.add(Answer(attempt=attempt, question=question, value=value, points=points,
+                                      check_state='checked'))
+            db.session.commit()
+
+        url = '/api/tests/1/questions/1/wrong-answers'
+        self.assertEqual(self.client.get(url).status_code, 403)
+        teacher = self.login(1, 'teacher')
+        self.assertEqual(teacher.get('/api/tests/2/questions/1/wrong-answers').status_code, 404)
+        result = teacher.get(url).json
+        self.assertEqual(result['distinct_count'], 2)
+        self.assertEqual(result['answers'][0], {'preview': 'Синий', 'count': 2, 'example_attempt_id': 1})
+        self.assertIsNone(result['answers'][1]['preview'])
+        summary = teacher.get('/api/tests/1/results').json['question_summary'][0]
+        self.assertEqual(sum(row['count'] for row in result['answers']), summary['below_max_count'])
+
     def test_socket_rejects_anonymous_connections(self):
         self.assertFalse(self.socketio.test_client(self.app).is_connected())
 

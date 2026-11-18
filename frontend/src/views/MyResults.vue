@@ -43,6 +43,6 @@ import {useAuthStore} from '../stores/auth'
 import { useResultList } from '../composables/useResultList'
 import { formatDateTime as fmt } from '../utils/dates'
 
-const { attempts, loading, refreshing, error, refresh } = useResultList(api.myAttempts, `user_${useAuthStore().user.id}`)
+const { results: attempts, loading, refreshing, error, refresh } = useResultList(api.myAttempts, `user_${useAuthStore().user.id}`)
 
 </script>

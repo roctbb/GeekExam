@@ -91,6 +91,43 @@ test('result page recovers completion with no websocket event', async ({ page })
   await expect(page.locator('.ge-score')).toHaveText('5 / 5', { timeout: 8000 })
 })
 
+test('teacher results show and refresh the ranked question summary', async ({ page }) => {
+  const state = await mockPlatform(page, 'teacher')
+  await page.goto('/admin/tests/1')
+  await page.getByRole('link', { name: 'Результаты', exact: true }).click()
+  await expect(page.getByText('Пока нет оценённых ответов в проверенных работах.')).toBeVisible()
+  await expect(page.getByText('В процессе', { exact: true })).toBeVisible()
+
+  Object.assign(state.attempt, { finished_at: '2026-10-10T12:30:00Z', is_checked: true, total_points: 4 })
+  state.questionSummary = [
+    { question_id: 2, title: 'Циклы', order: 1, variant_title: 'Вариант 2', below_max_count: 2, graded_count: 3 },
+    { question_id: 1, title: 'Условия', order: 0, variant_title: 'Вариант 1', below_max_count: 1, graded_count: 4 },
+  ]
+  await page.getByRole('button', { name: 'Обновить', exact: true }).click()
+  const summary = page.getByRole('table', { name: 'Сводка по заданиям' })
+  const firstQuestion = summary.getByRole('row').nth(1)
+  await expect(firstQuestion.getByRole('rowheader')).toHaveText('2. Циклы')
+  await expect(firstQuestion.getByRole('cell')).toHaveText(['Вариант 2', '2 из 3', /66,7\s?%/])
+  await expect(summary.getByRole('row', { name: /Условия/ })).toContainText('1 из 4')
+  await expect(page.getByText('4/5', { exact: true })).toBeVisible()
+
+  const wrongAnswersUrl = '/api/tests/1/questions/2/wrong-answers'
+  state.fail[`GET ${wrongAnswersUrl}`] = { status: 503 }
+  const question = firstQuestion.getByRole('button', { name: '2. Циклы' })
+  await question.click()
+  await expect(question).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByText('Не удалось загрузить ответы.')).toBeVisible()
+
+  delete state.fail[`GET ${wrongAnswersUrl}`]
+  state.wrongAnswers = [{ preview: 'range(1, 5)', count: 2, example_attempt_id: 1 }]
+  await page.getByRole('button', { name: 'Повторить' }).click()
+  await expect(summary.getByText('range(1, 5)', { exact: true })).toBeVisible()
+  await expect(summary.getByLabel('Повторений: 2')).toBeVisible()
+  await expect(summary.getByRole('link', { name: 'Пример работы' })).toHaveAttribute('href', '/admin/attempts/1')
+  await question.click()
+  await expect(summary.getByText('range(1, 5)', { exact: true })).toHaveCount(0)
+})
+
 test('editor guards changes, retains unsaved questions after saving params, and restores after reload', async ({ page }) => {
   const state = await mockPlatform(page, 'teacher')
   await page.goto('/admin/tests/1/edit')

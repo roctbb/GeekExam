@@ -3,10 +3,12 @@ import json
 from datetime import datetime
 from flask import Blueprint, jsonify, request
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import joinedload
 from models import db, Test, TestGroup, Variant, Question, Attempt
 from auth import teacher_required, current_user_id
 from validation import validate_test_payload
 from attempt_lifecycle import mark_locked_attempt_finished, publish_attempt_finished
+from question_results import common_wrong_answers, question_summary
 
 tests_bp = Blueprint('tests', __name__)
 
@@ -432,11 +434,11 @@ def set_test_code(test_id):
     return jsonify({'code': test.code})
 
 
-@tests_bp.route('/api/tests/<int:test_id>/attempts', methods=['GET'])
-@teacher_required
-def test_attempts(test_id):
-    attempts = Attempt.query.filter_by(test_id=test_id).all()
-    return jsonify([
+def _test_attempts(test_id):
+    attempts = Attempt.query.filter_by(test_id=test_id).options(
+        joinedload(Attempt.user), joinedload(Attempt.variant),
+    ).all()
+    return [
         {
             'id': a.id,
             'user_id': a.user_id,
@@ -450,4 +452,24 @@ def test_attempts(test_id):
             'max_points': a.max_points,
         }
         for a in attempts
-    ])
+    ]
+
+
+@tests_bp.route('/api/tests/<int:test_id>/attempts', methods=['GET'])
+@teacher_required
+def test_attempts(test_id):
+    return jsonify(_test_attempts(test_id))
+
+
+@tests_bp.route('/api/tests/<int:test_id>/results', methods=['GET'])
+@teacher_required
+def test_results(test_id):
+    db.get_or_404(Test, test_id)
+    return jsonify(attempts=_test_attempts(test_id), question_summary=question_summary(test_id))
+
+
+@tests_bp.route('/api/tests/<int:test_id>/questions/<int:question_id>/wrong-answers', methods=['GET'])
+@teacher_required
+def test_question_wrong_answers(test_id, question_id):
+    question = Question.query.join(Variant).filter(Question.id == question_id, Variant.test_id == test_id).first_or_404()
+    return jsonify(common_wrong_answers(test_id, question))
