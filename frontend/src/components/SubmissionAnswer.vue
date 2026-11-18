@@ -5,8 +5,8 @@
       <div v-for="file in materials" :key="file.id"><a :href="safeUrl(file.download_url)" target="_blank" rel="noopener">{{ file.path }}</a><span class="text-muted small" v-if="file.read_only"> · только чтение</span></div>
     </div>
     <fieldset :disabled="readonly || uploading">
-      <div class="row g-2 mb-3">
-        <label class="col-md-7">Способ сдачи<select class="form-select mt-1" :value="mode" @change="setMode($event.target.value)"><option v-for="key in allowedModes" :key="key" :value="key">{{ labels[key] }}</option></select></label>
+      <div v-if="canChooseMode || languages.length > 1" class="row g-2 mb-3">
+        <label v-if="canChooseMode" class="col-md-7">Способ сдачи<select class="form-select mt-1" :value="mode" @change="setMode($event.target.value)"><option v-for="key in allowedModes" :key="key" :value="key">{{ labels[key] }}</option></select></label>
         <label v-if="languages.length > 1" class="col-md-5">Язык<select class="form-select mt-1" :value="language" @change="patch({lang:$event.target.value})"><option v-for="lang in languages" :key="lang">{{ lang }}</option></select></label>
       </div>
       <template v-if="mode === 'repository'">
@@ -51,8 +51,12 @@ const emit=defineEmits(['update:modelValue','uploading'])
 const value=computed(()=>props.modelValue || {})
 const config=computed(()=>props.question.submission_config || props.question.check_config || {})
 const labels={files:'Загрузить файлы',code:'Вставить код',text:'Ответ текстом',project:'Несколько файлов кода',repository:'GitHub-репозиторий'}
-const allowedModes=computed(()=>config.value.submission_modes || [props.question.type === 'code_input' ? 'code' : 'text'])
-const mode=computed(()=>value.value.mode || (typeof value.value.code==='string' ? 'code' : allowedModes.value[0]))
+const allowedModes = computed(() => [...new Set(config.value.submission_modes || [props.question.type === 'code_input' ? 'code' : 'text'])])
+const canChooseMode = computed(() => allowedModes.value.length > 1)
+const mode = computed(() => {
+  if (!props.readonly && allowedModes.value.length === 1) return allowedModes.value[0]
+  return value.value.mode || (typeof value.value.code === 'string' ? 'code' : allowedModes.value[0])
+})
 const language=computed(()=>value.value.lang || config.value.lang || props.question.ui_config?.lang || (props.question.type==='code_input'?'python':'text'))
 const languages=computed(()=>config.value.allowed_languages || [language.value])
 const editorFiles=computed(()=>(value.value.files || []).filter(file=>typeof file.content==='string'))
