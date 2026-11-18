@@ -378,7 +378,7 @@ async function save() {
         body: JSON.stringify({ version: f.router.version, room_id: f.room_id }),
       });
     }
-  }, "Изменение сохранено. Ожидается подтверждение агента.");
+  }, kind === 'proof' ? 'Настройка автопривязки сохранена. Проверьте доступность локального агента в сети кабинета.' : "Изменение сохранено. Ожидается подтверждение агента.");
 }
 async function enroll(router) {
   busy.value = true;
@@ -945,7 +945,7 @@ onUnmounted(() => {
           <template v-if="dialog === 'proof'">
             <p>{{ form.router.name }}</p>
             <label>Адрес локального агента HTTPS<input v-model="form.origin" type="url" required maxlength="250" placeholder="https://lan-409.guard.geekclass.ru:18766"></label>
-            <label class="check"><input v-model="form.enabled" type="checkbox">Разрешить автоматическое определение устройств</label>
+            <label class="checkbox-label"><input v-model="form.enabled" type="checkbox">Разрешить автоматическое определение устройств</label>
             <p class="muted">Сначала настройте локальный адрес агента, DNS и доверенный TLS-сертификат. Этот адрес должен быть доступен ученикам из сети кабинета. Пароль роутера и пароль Coding Projects в браузер не передаются.</p>
             <p class="muted">Настройка применяется только к выбранному роутеру. Первый запрос может вызвать разрешение браузера на доступ к локальной сети.</p>
           </template>
