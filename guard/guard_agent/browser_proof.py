@@ -111,7 +111,7 @@ class LanProofServer:
                     # client_address comes from the TCP socket. Forwarding headers
                     # and JSON parameters can never choose the LAN device.
                     peer = ipaddress.IPv4Address(self.client_address[0])
-                    if not any(peer in net for net in owner.settings['networks']):
+                    if peer == ipaddress.IPv4Address(owner.settings['listen']) or not any(peer in net for net in owner.settings['networks']):
                         self.reply(403);return
                 except (ValueError,TypeError,TimeoutError):
                     self.reply(400);return

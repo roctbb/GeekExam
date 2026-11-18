@@ -59,6 +59,10 @@ def test_tls_request_uses_actual_socket_peer_and_rejects_browser_ip_claims(tls):
                 return response.status,response.headers,response.read()
         except HTTPError as error:return error.code,error.headers,error.read()
     try:
+        # The agent host (or a same-host reverse proxy) cannot stand in for a pupil.
+        assert request({'token':'a'*43})[0]==403
+        # The loopback client now represents a separate LAN device in this test.
+        server.settings['listen']='192.168.2.54'
         assert request({'token':'a'*43},origin='https://evil.example')[0]==403
         assert request({'token':'a'*43,'peer_ip':'192.168.2.200'})[0]==400
         status,headers,_=request({},method='OPTIONS')
