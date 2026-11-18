@@ -38,6 +38,15 @@ services:
       retries: 3
       start_period: 30s
 
+  presence_worker:
+    build: ./backend
+    command: celery -A celery_app worker --loglevel=info -Q presence_queue --concurrency=1 --hostname=presence@%h
+    depends_on:
+      backend:
+        condition: service_healthy
+    env_file: .env
+    restart: unless-stopped
+
   celery_beat:
     build: ./backend
     command: celery -A celery_app beat --loglevel=info

@@ -2,6 +2,7 @@ from time_utils import utc_iso
 from datetime import datetime, timedelta
 
 from models import db, Answer, Attempt
+from presence_service import finish_monitoring
 
 
 def attempt_deadline(attempt):
@@ -29,6 +30,7 @@ def mark_locked_attempt_finished(attempt, now=None):
     attempt.finished_at = min(now, deadline) if deadline else now
     attempt.is_checked = False
     attempt.total_points = None
+    finish_monitoring(attempt)
     return True
 
 

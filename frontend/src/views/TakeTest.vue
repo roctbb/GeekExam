@@ -11,6 +11,12 @@
       </div>
     </div>
 
+    <div v-if="presenceState.state !== 'disabled' && !store.attempt.finished_at" class="small mb-2" role="status"
+      :class="presenceState.state === 'offline' ? 'text-danger' : 'text-muted'">
+      {{ presenceState.state === 'offline' ? 'Нет подтверждения связи с GeekExam' : presenceState.state === 'online' ? 'Связь с GeekExam установлена' : 'Подключение к GeekExam…' }}
+      <span v-if="presenceState.code"> · Код подключения: <strong>{{ presenceState.code }}</strong></span>
+      <span v-if="presenceState.state === 'offline' && presenceState.lastAck"> · Последнее подтверждение: {{ new Date(presenceState.lastAck).toLocaleTimeString('ru') }}</span>
+    </div>
     <div v-if="saveClosed" class="alert alert-warning" role="alert">
       Тест завершён. Показанный черновик может отличаться от отправленных ответов. Скопируйте нужный текст перед выходом.
       <button class="btn btn-sm btn-outline-secondary ms-2" @click="openClosedResults">Открыть результаты</button>
@@ -95,6 +101,7 @@ import { createDraftStorage, createAnswerDrafts } from '../utils/drafts'
 import { createLiveRefresh } from '../utils/liveRefresh'
 import { validateAnswerSize } from '../utils/answerLimits'
 import { createAttemptTimer } from '../utils/attemptTimer'
+import { createAttemptPresence } from '../utils/attemptPresence'
 import IntermediateCheckButton from '../components/IntermediateCheckButton.vue'
 import SubmissionAnswer from '../components/SubmissionAnswer.vue'
 import ExecutionResult from '../components/ExecutionResult.vue'
@@ -113,6 +120,8 @@ const questionComponents = { text_input: TextInputQuestion, code_input: CodeInpu
 const route = useRoute()
 const router = useRouter()
 const store = useAttemptStore()
+const presenceState = ref({ state: 'connecting', code: '', lastAck: null })
+let presence
 const activeTab = ref(0)
 const timeLeft = ref(null)
 const finishing = ref(false)
@@ -221,6 +230,7 @@ async function onIntermediateCheck() {
 }
 
 function showFinished(data) {
+  presence?.stop()
   store.attempt.finished_at = data.finished_at || store.attempt.finished_at || new Date().toISOString()
   stopTimer()
   live?.stop()
@@ -360,10 +370,12 @@ function mergeSnapshot(data) {
 }
 
 function onOnline() {
+  presence?.ping()
   if (!saveClosed.value && timeLeft.value !== 0 && saver.hasPending()) retrySaves()
   if (timeLeft.value === 0 && !store.attempt?.finished_at) doFinish()
 }
 function onVisibilityChange() {
+  presence?.ping()
   if (document.hidden && !saveClosed.value && saver.hasPending()) saver.flush().catch(() => {})
 }
 
@@ -394,6 +406,17 @@ async function loadAttempt() {
   }
   startTimer(store.attempt)
   if (store.attempt.finished_at) { showFinished(store.attempt); return }
+  presence?.stop()
+  let presenceStorage
+  try { presenceStorage = window.sessionStorage } catch { /* Private mode can block storage. */ }
+  presence = createAttemptPresence({
+    attemptId: route.params.id,
+    register: async data => (await api.registerPresence(route.params.id, data)).data,
+    heartbeat: async data => (await api.heartbeat(route.params.id, data)).data,
+    storage: presenceStorage, visible: () => document.visibilityState === 'visible',
+    onChange: value => { presenceState.value = value },
+  })
+  presence.start()
   live = createLiveRefresh({
     socket: io({ path: '/socket.io', transports:['websocket'], autoConnect: false }),
     room: `attempt_${route.params.id}`,
@@ -419,6 +442,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  presence?.stop()
   disposed = true
   stopTimer()
   saver.dispose()

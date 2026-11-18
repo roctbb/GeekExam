@@ -5,7 +5,7 @@ celery = Celery(
     'geekexam',
     broker=CELERY_BROKER,
     backend=CELERY_BROKER,
-    include=['celery_tasks.check_answer', 'celery_tasks.execution'],
+    include=['celery_tasks.check_answer', 'celery_tasks.execution', 'celery_tasks.presence'],
 )
 
 celery.conf.update(
@@ -15,7 +15,10 @@ celery.conf.update(
     timezone='Europe/Moscow',
     task_default_queue='auditor_queue',
     worker_prefetch_multiplier=1,
+    task_routes={'celery_tasks.presence.*': {'queue': 'presence_queue'}},
     beat_schedule={
+        'collect-presence': {'task': 'celery_tasks.presence.collect', 'schedule': 5.0},
+        'prune-presence-samples': {'task': 'celery_tasks.presence.prune', 'schedule': 86400.0},
         'recover-execution-outbox': {'task': 'celery_tasks.execution.recover_executions', 'schedule': 60.0},
         'finish-expired-attempts': {
             'task': 'celery_tasks.check_answer.finish_expired_attempts',

@@ -18,6 +18,8 @@ AUTH_URL = GEEKCLASS_HOST + '/insider/jwt?redirect_url='
 
 CALLBACK_BASE_URL = os.getenv('CALLBACK_BASE_URL', 'http://localhost:8085')
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+GUARD_URL = os.getenv('GUARD_URL', '').rstrip('/')
+GUARD_SERVICE_SECRET = os.getenv('GUARD_SERVICE_SECRET', '')
 
 # Execution clients have independent signing keys; JWT_SECRET remains login-only.
 GEEKEXECUTOR_URL = os.getenv('GEEKEXECUTOR_URL', 'http://geekexecutor:8086').rstrip('/')

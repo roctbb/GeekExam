@@ -18,7 +18,7 @@ def authenticate_agent():
     authorization = request.headers.get("Authorization", "")
     if not authorization.startswith("Bearer ") or not 20 <= len(authorization[7:]) <= 150:
         raise ApiError("unauthorized_agent", 401)
-    router = db.session.execute(db.select(Router).where(Router.token_digest == digest(authorization[7:]))).scalar_one_or_none()
+    router = db.session.execute(db.select(Router).where(Router.token_digest == digest(authorization[7:])).with_for_update()).scalar_one_or_none()
     if router is None:
         raise ApiError("unauthorized_agent", 401)
     return router
@@ -71,6 +71,7 @@ def mac_address(value):
 
 @agents.post("/sync")
 def sync():
+    from .exam_presence import network_event, source_transition
     router = authenticate_agent()
     data = body({"boot_id", "sequence", "complete", "devices", "source_error", "source_age_seconds",
                  "mode", "model", "firmware", "capabilities"},
@@ -123,8 +124,11 @@ def sync():
     if len(ips) != len(set(ips)):
         raise ApiError("duplicate_active_ip")
     changed = False
+    new_error = source_error or ("stale_observation" if not usable else None if data["complete"] else "incomplete_observation")
+    source_transition(router,new_error)
     if router.boot_id != boot_id:
         if router.boot_id:
+            network_event(router,"agent_restarted",last_confirmed=router.observation_at)
             db.session.get(AgentBoot, (router.id, router.boot_id)).retired = True
         if old_boot is None:
             db.session.add(AgentBoot(router_id=router.id, boot_id=boot_id))
@@ -136,6 +140,12 @@ def sync():
     observed_at = now()-timedelta(seconds=source_age)
     for mac, ip, name, epoch, segment in records if usable else []:
         device = known.get(mac)
+        if device is not None and not device.associated:
+            previous_binding = db.session.execute(db.select(NetworkSession).where(
+                NetworkSession.device_id == device.id).order_by(NetworkSession.expires_at.desc())).scalars().first()
+            if previous_binding:
+                network_event(router,"device_reconnected",binding=previous_binding,device=device,at=observed_at,
+                              reason="association_restored")
         if device is None:
             device = Device(router_id=router.id, segment_id=segment.id, mac=mac, epoch=epoch)
             db.session.add(device)
@@ -143,20 +153,28 @@ def sync():
         elif (device.ip, device.epoch, device.segment_id) != (ip, epoch, segment.id):
             for binding in db.session.execute(db.select(NetworkSession).where(NetworkSession.device_id == device.id, NetworkSession.revoked_at.is_(None))).scalars():
                 binding.revoked_at = now()
+                network_event(router,"binding_changed",binding=binding,device=device,at=observed_at,
+                              last_confirmed=device.observed_at,reason="connection_changed")
             changed = True
         if not device.associated:
             changed = True
         device.ip, device.epoch, device.segment_id = ip, epoch, segment.id
         device.name, device.associated, device.observed_at = name, True, observed_at
     if data["complete"] and usable:
+        departed = sum(mac not in seen and device.associated for mac,device in known.items())
+        associated = sum(device.associated for device in known.values())
         for mac, device in known.items():
             if mac not in seen and device.associated:
+                last_confirmed = device.observed_at
                 device.associated, device.observed_at = False, observed_at
                 for binding in db.session.execute(db.select(NetworkSession).where(NetworkSession.device_id == device.id, NetworkSession.revoked_at.is_(None))).scalars():
                     binding.revoked_at = now()
+                    network_event(router,"device_disconnected",binding=binding,device=device,at=observed_at,
+                                  last_confirmed=last_confirmed,batch=f"{boot_id}:{sequence}",
+                                  batch_departed=departed,batch_total=associated)
                 changed = True
     router.last_seen, router.observation_at = now(), observed_at
-    router.source_error = source_error or ("stale_observation" if not usable else None if data["complete"] else "incomplete_observation")
+    router.source_error = new_error
     router.model = text(data.get("model", router.model), 120, True)
     router.firmware = text(data.get("firmware", router.firmware), 80, True)
     router.capabilities, router.mode = caps, data["mode"]

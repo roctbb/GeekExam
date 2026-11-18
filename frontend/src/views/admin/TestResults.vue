@@ -6,6 +6,7 @@
       <RouterLink :to="`/admin/tests/${$route.params.id}`" class="btn btn-outline-secondary btn-sm"><AppIcon name="arrow-left" />Назад</RouterLink>
     </div>
     <div v-if="actionError" class="alert alert-danger" role="alert">{{ actionError }}</div>
+    <ExamMonitoring ref="monitorPanel" :test-id="testId" :data="monitor.data.value" :stale="monitor.stale.value" :error="monitor.error.value" @refresh="monitor.refresh" />
     <div v-if="error" class="alert alert-danger" role="alert">
       {{ error }} <button class="btn btn-sm btn-outline-danger" :disabled="refreshing" @click="refresh">Повторить</button>
     </div>
@@ -65,11 +66,18 @@
       </div>
       <div class="table-responsive">
       <table class="table table-hover align-middle">
-        <thead><tr><th>Ученик</th><th>Вариант</th><th>Начало</th><th>Конец</th><th>Результат</th><th></th></tr></thead>
+        <thead><tr><th>Ученик</th><th>Вариант</th><th>GeekExam</th><th>Сеть Guard</th><th>Начало</th><th>Конец</th><th>Результат</th><th></th></tr></thead>
         <tbody>
           <tr v-for="a in sortedAttempts" :key="a.id">
             <td class="fw-semibold">{{ a.user_name }}</td>
             <td>{{ a.variant_title }}</td>
+            <td><PresenceStatus :value="monitor.byAttempt.value[a.id]?.exam" channel="exam" :stale="monitor.stale.value" :finished="!!a.finished_at" :enabled="monitor.data.value?.config?.enabled !== false" /></td>
+            <td>
+              <PresenceStatus :value="monitor.byAttempt.value[a.id]?.guard" channel="guard" :stale="monitor.stale.value" :finished="!!a.finished_at" :enabled="monitor.data.value?.config?.enabled !== false" />
+              <button class="btn btn-sm btn-link p-0 mt-1 text-start" @click="monitorPanel.open(a)">
+                {{ monitor.byAttempt.value[a.id]?.review_count ? `Проверить: ${monitor.byAttempt.value[a.id].review_count}` : 'Журнал связи' }}
+              </button>
+            </td>
             <td class="text-muted small">{{ fmt(a.started_at) }}</td>
             <td class="text-muted small">{{ fmt(a.finished_at) || '—' }}</td>
             <td>
@@ -99,11 +107,16 @@ import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import api from '../../api'
 import QuestionWrongAnswers from '../../components/QuestionWrongAnswers.vue'
+import ExamMonitoring from '../../components/ExamMonitoring.vue'
+import PresenceStatus from '../../components/PresenceStatus.vue'
+import { useExamMonitoring } from '../../composables/useExamMonitoring'
 import { useResultList } from '../../composables/useResultList'
 import { numberedQuestionTitle } from '../../utils/answers'
 import { formatDateTime as fmt, parseApiDate } from '../../utils/dates'
 const route = useRoute()
 const testId = route.params.id
+const monitor = useExamMonitoring(testId)
+const monitorPanel = ref(null)
 const { results, loading, refreshing, error, refresh } = useResultList(
   () => api.getTestResults(testId), `test_${testId}`, { attempts: [], question_summary: [] },
 )

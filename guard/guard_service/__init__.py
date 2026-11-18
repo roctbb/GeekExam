@@ -56,6 +56,8 @@ def create_app(settings=None):
     app.register_blueprint(auth)
     app.register_blueprint(api)
     app.register_blueprint(agents)
+    from .exam_presence import exam_presence
+    app.register_blueprint(exam_presence)
     from .cli import register
     register(app)
 

@@ -340,6 +340,8 @@ def bind_device(device_id):
 @authenticated("teacher", "admin")
 def revoke_binding(session_id):
     binding, _device, router, _user = session_scope(session_id)
+    if binding.revoked_at:
+        return jsonify(ok=True)
     binding.revoked_at = now()
     router.desired_revision += 1
     audit(router.room_id, "session.revoked", binding.id)
