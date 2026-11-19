@@ -46,8 +46,14 @@ async function connectNetwork() {
   try {
     const proof = await api('/api/v1/network-login/start', { method: 'POST', body: JSON.stringify({router_id: portalRouter}) });
     networkLogin.value = proof.id;
-    const response = await fetch(proof.url, {method:'POST', credentials:'omit', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({token:proof.token}), signal:AbortSignal.timeout(15000)});
+    let response;
+    // A newly joined device may precede the agent's next five-second cloud sample.
+    for (let attempt = 0; attempt < 4; attempt++) {
+      response = await fetch(proof.url, {method:'POST', credentials:'omit', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({token:proof.token}), signal:AbortSignal.timeout(12000)});
+      if (response.ok || ![409,503].includes(response.status) || attempt === 3) break;
+      await new Promise(resolve => setTimeout(resolve,2000));
+    }
     if (!response.ok) throw new Error('Не удалось подтвердить устройство. Проверьте подключение к ученическому Wi-Fi и повторите вход.');
     networkState.value = await api(`/api/v1/network-login/${proof.id}`);
   } catch (e) {
