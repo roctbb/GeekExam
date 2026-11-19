@@ -91,7 +91,7 @@ test('result page recovers completion with no websocket event', async ({ page })
   await expect(page.locator('.ge-score')).toHaveText('5 / 5', { timeout: 8000 })
 })
 
-test('teacher results show and refresh the ranked question summary', async ({ page }) => {
+test('teacher reviews answer proportions and reveals answers for every variant', async ({ page }) => {
   const state = await mockPlatform(page, 'teacher')
   await page.goto('/admin/tests/1')
   await page.getByRole('link', { name: 'Результаты', exact: true }).click()
@@ -99,33 +99,62 @@ test('teacher results show and refresh the ranked question summary', async ({ pa
   await expect(page.getByText('В процессе', { exact: true })).toBeVisible()
 
   Object.assign(state.attempt, { finished_at: '2026-10-10T12:30:00Z', is_checked: true, total_points: 4 })
-  state.questionSummary = [
-    { question_id: 2, title: 'Циклы', order: 1, variant_title: 'Вариант 2', below_max_count: 2, graded_count: 3 },
-    { question_id: 1, title: 'Условия', order: 0, variant_title: 'Вариант 1', below_max_count: 1, graded_count: 4 },
+  state.questionReview = [
+    { order: 0, title: 'Условия', variants: [
+      { question_id: 1, title: 'Условия', variant_title: 'Вариант 1', correct_count: 15, incorrect_count: 5, skipped_count: 0 },
+    ] },
+    { order: 1, title: 'Циклы', variants: [
+      { question_id: 2, title: 'Циклы', variant_title: 'Вариант 1', correct_count: 1, incorrect_count: 2, skipped_count: 1 },
+      { question_id: 4, title: 'Циклы', variant_title: 'Вариант 2', correct_count: 3, incorrect_count: 2, skipped_count: 0 },
+    ] },
   ]
+  state.reviewQuestions = {
+    0: [{ id: 1, type: 'text_input', body: 'Условие с if', check_config: { answer: 'True' } }],
+    1: [
+      { id: 2, type: 'text_input', body: 'Цикл в первом варианте', check_config: { answer: '3' } },
+      { id: 4, type: 'text_input', body: 'Цикл во втором варианте', check_config: { answer: '6' } },
+    ],
+  }
   await page.getByRole('button', { name: 'Обновить', exact: true }).click()
-  const summary = page.getByRole('table', { name: 'Сводка по заданиям' })
-  const firstQuestion = summary.getByRole('row').nth(1)
-  await expect(firstQuestion.getByRole('rowheader')).toHaveText('2. Циклы')
-  await expect(firstQuestion.getByRole('cell')).toHaveText(['Вариант 2', '2 из 3', /66,7\s?%/])
-  await expect(summary.getByRole('row', { name: /Условия/ })).toContainText('1 из 4')
+  const summary = page.getByRole('group', { name: 'Задания по доле ответов с ошибкой' })
+  const firstQuestion = summary.getByRole('button').first()
+  await expect(firstQuestion).toContainText('2. Циклы')
+  await expect(firstQuestion).toContainText('50% / 50%')
+  await expect(firstQuestion).toHaveAttribute('aria-pressed', 'true')
+  await expect(summary.getByRole('button', { name: /Условия/ })).toContainText('75% / 25%')
   await expect(page.getByText('4/5', { exact: true })).toBeVisible()
+
+  const variants = page.getByRole('region', { name: '2. Циклы' })
+  await expect(variants.getByRole('article')).toHaveCount(2)
+  await expect(variants.getByText('Цикл в первом варианте')).toBeVisible()
+  await expect(variants.getByText('Цикл во втором варианте')).toBeVisible()
+  await expect(variants.getByText('1 верно · 2 с ошибкой · Пропустили 1')).toBeVisible()
+  await expect(variants.getByText('Ожидаемый ответ')).toHaveCount(0)
 
   const wrongAnswersUrl = '/api/tests/1/questions/2/wrong-answers'
   state.fail[`GET ${wrongAnswersUrl}`] = { status: 503 }
-  const question = firstQuestion.getByRole('button', { name: '2. Циклы' })
-  await question.click()
-  await expect(question).toHaveAttribute('aria-expanded', 'true')
-  await expect(page.getByText('Не удалось загрузить ответы.')).toBeVisible()
+  state.wrongAnswers[4] = [{ preview: 'range(1, 10)', count: 2, example_attempt_id: 1 }]
+  await variants.getByRole('button', { name: 'Показать ответы' }).click()
+  await expect(variants.getByText('Ожидаемый ответ')).toHaveCount(2)
+  await expect(variants.getByText('Не удалось загрузить ответы.')).toBeVisible()
+  await expect(variants.getByText('range(1, 10)', { exact: true })).toBeVisible()
 
   delete state.fail[`GET ${wrongAnswersUrl}`]
-  state.wrongAnswers = [{ preview: 'range(1, 5)', count: 2, example_attempt_id: 1 }]
-  await page.getByRole('button', { name: 'Повторить' }).click()
-  await expect(summary.getByText('range(1, 5)', { exact: true })).toBeVisible()
-  await expect(summary.getByLabel('Повторений: 2')).toBeVisible()
-  await expect(summary.getByRole('link', { name: 'Пример работы' })).toHaveAttribute('href', '/admin/attempts/1')
-  await question.click()
-  await expect(summary.getByText('range(1, 5)', { exact: true })).toHaveCount(0)
+  state.wrongAnswers[2] = [{ preview: 'range(1, 5)', count: 2, example_attempt_id: 1 }]
+  await variants.getByRole('button', { name: 'Повторить', exact: true }).click()
+  await expect(variants.getByText('range(1, 5)', { exact: true })).toBeVisible()
+  await expect(variants.getByRole('link', { name: 'Пример работы' }).first()).toHaveAttribute('href', '/admin/attempts/1')
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  const panels = await variants.getByRole('article').evaluateAll(items => items.map(item => item.getBoundingClientRect()))
+  expect(panels[1].x).toBe(panels[0].x)
+  expect(panels[1].top).toBeGreaterThan(panels[0].bottom)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+
+  await summary.getByRole('button', { name: /Условия/ }).click()
+  const nextTask = page.getByRole('region', { name: '1. Условия' })
+  await expect(nextTask.getByText('Условие с if')).toBeVisible()
+  await expect(nextTask.getByRole('button', { name: 'Показать ответы' })).toHaveAttribute('aria-expanded', 'false')
 })
 
 test('editor guards changes, retains unsaved questions after saving params, and restores after reload', async ({ page }) => {

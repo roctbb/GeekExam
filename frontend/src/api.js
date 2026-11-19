@@ -32,6 +32,7 @@ export default {
   extendTestTime: (id, timeLimit, minutes = 15) => api.post(`/tests/${id}/extend-time`, { minutes, expected_time_limit: timeLimit }),
   setTestCode: (id, code) => api.put(`/tests/${id}/code`, { code }),
   getTestResults: (id) => api.get(`/tests/${id}/results`),
+  getQuestionReview: (testId, order, signal) => api.get(`/tests/${testId}/question-review/${order}`, { signal }),
   getPresence: id => api.get(`/tests/${id}/presence`),
   configurePresence: (id, data) => api.put(`/tests/${id}/presence`, data),
   getPresenceRooms: () => api.get('/presence/rooms'),
@@ -43,7 +44,9 @@ export default {
   heartbeat: (id, data) => api.post(`/attempts/${id}/presence/heartbeat`, data, { timeout: 8000 }),
   startDeviceProof: (id,data) => api.post(`/attempts/${id}/presence/auto/start`,data,{timeout:10000}),
   finishDeviceProof: (id,data) => api.post(`/attempts/${id}/presence/auto/finish`,data,{timeout:10000}),
-  getWrongAnswers: (testId, questionId, signal) => api.get(`/tests/${testId}/questions/${questionId}/wrong-answers`, { signal }),
+  getWrongAnswers: (testId, questionId, signal) => api.get(`/tests/${testId}/questions/${questionId}/wrong-answers`, {
+    signal, params: { include_skipped: 0 },
+  }),
   // Attempts
   joinTest: (code) => api.post('/join', { code }),
   getAttempt: (id) => api.get(`/attempts/${id}`),

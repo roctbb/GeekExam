@@ -135,7 +135,9 @@ class PlatformRegressionTests(unittest.TestCase):
     def test_test_results_rank_graded_questions_across_variants(self):
         finished_at = datetime.utcnow()
         self.change(attempt={'finished_at': finished_at, 'is_checked': True},
-                    answer={'check_state': 'checked', 'points': 4.5})
+                    answer={'check_state': 'checked', 'points': 4.5},
+                    question={'body': 'Условие первого варианта',
+                              'check_config': {'answer': 'reference', 'private_instructions': 'internal'}})
         with self.app.app_context():
             test = db.session.get(Test, 1)
             original = db.session.get(Question, 1)
@@ -144,6 +146,9 @@ class PlatformRegressionTests(unittest.TestCase):
             other_variant = Variant(test=test, title='Other variant', order=1)
             other_question = Question(variant=other_variant, title=original.title, type='text_input',
                                       max_points=10, check_type='exact')
+            unused_variant = Variant(test=test, title='Unused variant', order=2)
+            unused_question = Question(variant=unused_variant, title='Third question', type='code_input',
+                                       max_points=10, check_type='docker', check_config={'tests': [{'expected': '1'}]})
             perfect = Attempt(test=test, variant=original.variant, user_id=3, max_points=20,
                               finished_at=finished_at, is_checked=True)
             blank = Attempt(test=test, variant=other_variant, user_id=4, max_points=10,
@@ -152,6 +157,7 @@ class PlatformRegressionTests(unittest.TestCase):
             rechecking = Attempt(test=test, variant=other_variant, user_id=6, max_points=10,
                                  finished_at=finished_at)
             db.session.add_all([User(id=i, name=f'Student {i}', role='student') for i in (4, 5, 6)])
+            db.session.add(unused_question)
             db.session.add_all([
                 Answer(attempt_id=1, question=second, points=0, check_state='error'),
                 Answer(attempt=perfect, question=original, points=10, check_state='checked'),
@@ -161,7 +167,7 @@ class PlatformRegressionTests(unittest.TestCase):
                 Answer(attempt=rechecking, question=other_question, points=10, check_state='checked'),
             ])
             db.session.commit()
-            other_question_id, second_id = other_question.id, second.id
+            other_question_id, second_id, unused_question_id = other_question.id, second.id, unused_question.id
 
         url = '/api/tests/1/results'
         self.assertEqual(self.client.get(url).status_code, 403)
@@ -176,9 +182,25 @@ class PlatformRegressionTests(unittest.TestCase):
             dict(question_id=second_id, order=1, title='Second', variant_title='Variant',
                  below_max_count=0, graded_count=1),
         ])
+        review = results['question_review']
+        self.assertEqual([group['order'] for group in review], [0, 1])
+        variants = review[0]['variants']
+        self.assertEqual([row['question_id'] for row in variants], [1, other_question_id, unused_question_id])
+        self.assertEqual([(row['correct_count'], row['incorrect_count'], row['skipped_count']) for row in variants],
+                         [(1, 1, 0), (0, 0, 1), (0, 0, 0)])
+        details_url = '/api/tests/1/question-review/0'
+        self.assertEqual(self.client.get(details_url).status_code, 403)
+        self.assertEqual(teacher.get('/api/tests/2/question-review/0').status_code, 404)
+        definitions = teacher.get(details_url).json['questions']
+        self.assertEqual([question['id'] for question in definitions], [1, other_question_id, unused_question_id])
+        self.assertEqual(definitions[0]['body'], 'Условие первого варианта')
+        self.assertEqual(definitions[0]['check_config'], {'answer': 'reference'})
+        self.assertEqual(definitions[2]['check_config'], {})
 
         self.assertEqual(teacher.put('/api/answers/1/grade', json={'points': 10}).status_code, 200)
-        self.assertEqual(teacher.get(url).json['question_summary'][1]['below_max_count'], 0)
+        updated = teacher.get(url).json
+        self.assertEqual(updated['question_summary'][1]['below_max_count'], 0)
+        self.assertEqual(updated['question_review'][0]['variants'][0]['correct_count'], 2)
 
     def test_common_wrong_answers_use_the_same_grades_as_the_summary(self):
         finished_at = datetime.utcnow()
@@ -188,7 +210,7 @@ class PlatformRegressionTests(unittest.TestCase):
             question = db.session.get(Question, 1)
             for user_id, value, points, is_checked in (
                 (3, {'text': ' синий  '}, 5, True),
-                (4, None, 0, True),
+                (4, {'text': '  ', 'mode': 'text', 'lang': 'text'}, 0, True),
                 (5, {'text': 'синий'}, 10, True),
                 (6, {'text': 'синий'}, 0, False),
             ):
@@ -210,6 +232,8 @@ class PlatformRegressionTests(unittest.TestCase):
         self.assertIsNone(result['answers'][1]['preview'])
         summary = teacher.get('/api/tests/1/results').json['question_summary'][0]
         self.assertEqual(sum(row['count'] for row in result['answers']), summary['below_max_count'])
+        self.assertEqual(teacher.get(url + '?include_skipped=0').json,
+                         {'answers': result['answers'][:1], 'distinct_count': 1})
 
     def test_socket_rejects_anonymous_connections(self):
         self.assertFalse(self.socketio.test_client(self.app).is_connected())

@@ -13,48 +13,7 @@
     <div v-if="loading" class="text-center py-4"><div class="spinner-border" /></div>
     <div v-else-if="!error && attempts.length === 0" class="text-center py-5 text-muted">Пока никто не проходил этот тест</div>
     <div v-else-if="attempts.length">
-      <section class="card mb-4" aria-labelledby="question-summary-title">
-        <div class="card-header">
-          <h5 id="question-summary-title" class="mb-0">Сводка по заданиям</h5>
-          <p v-if="questionSummary.length" class="small text-muted mb-0 mt-1">
-            По оценённым ответам из завершённых и проверенных работ. Сначала задания, в которых чаще теряли баллы.
-          </p>
-        </div>
-        <p v-if="!questionSummary.length" class="card-body text-muted mb-0">Пока нет оценённых ответов в проверенных работах.</p>
-        <div v-else class="table-responsive">
-          <table class="table table-sm align-middle mb-0" aria-labelledby="question-summary-title">
-            <thead>
-              <tr>
-                <th scope="col">Задание</th>
-                <th scope="col">Вариант</th>
-                <th scope="col" class="text-end">Ниже максимума</th>
-                <th scope="col" class="text-end" aria-sort="descending">Доля</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template v-for="row in questionSummary" :key="row.question_id">
-                <tr>
-                  <th scope="row">
-                    <button type="button" class="btn btn-link btn-sm p-0 text-start fw-semibold"
-                      :aria-expanded="expandedQuestionId === row.question_id"
-                      :aria-controls="expandedQuestionId === row.question_id ? `wrong-answers-${row.question_id}` : undefined"
-                      @click="toggleQuestion(row.question_id)">
-                      <AppIcon name="chevron-down" :class="{ 'ge-expanded-chevron': expandedQuestionId === row.question_id }" />
-                      {{ numberedQuestionTitle(row.title, row.order) }}
-                    </button>
-                  </th>
-                  <td>{{ row.variant_title }}</td>
-                  <td class="text-end text-nowrap">{{ row.below_max_count }} из {{ row.graded_count }}</td>
-                  <td class="text-end text-nowrap">{{ percent.format(row.below_max_count / row.graded_count) }}</td>
-                </tr>
-                <tr v-if="expandedQuestionId === row.question_id" :id="`wrong-answers-${row.question_id}`">
-                  <td colspan="4"><QuestionWrongAnswers :test-id="testId" :question="row" /></td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <TestQuestionReview :test-id="testId" :groups="results.question_review" />
       <div class="d-flex justify-content-end mb-2 gap-2 flex-wrap">
         <select aria-label="Сортировка результатов" v-model="sortBy" class="form-select form-select-sm" style="width:auto">
           <option value="started_at">Сортировка: по времени</option>
@@ -106,32 +65,24 @@
 import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import api from '../../api'
-import QuestionWrongAnswers from '../../components/QuestionWrongAnswers.vue'
+import TestQuestionReview from '../../components/TestQuestionReview.vue'
 import ExamMonitoring from '../../components/ExamMonitoring.vue'
 import PresenceStatus from '../../components/PresenceStatus.vue'
 import { useExamMonitoring } from '../../composables/useExamMonitoring'
 import { useResultList } from '../../composables/useResultList'
-import { numberedQuestionTitle } from '../../utils/answers'
 import { formatDateTime as fmt, parseApiDate } from '../../utils/dates'
 const route = useRoute()
 const testId = route.params.id
 const monitor = useExamMonitoring(testId)
 const monitorPanel = ref(null)
 const { results, loading, refreshing, error, refresh } = useResultList(
-  () => api.getTestResults(testId), `test_${testId}`, { attempts: [], question_summary: [] },
+  () => api.getTestResults(testId), `test_${testId}`, { attempts: [], question_review: [] },
 )
 const attempts = computed(() => results.value.attempts)
-const questionSummary = computed(() => results.value.question_summary)
-const percent = new Intl.NumberFormat('ru', { style: 'percent', maximumFractionDigits: 1 })
-const expandedQuestionId = ref(null)
 const sortBy = ref('started_at')
 const sortDir = ref('desc')
 const recheckingIds = ref(new Set())
 const deletingIds = ref(new Set()), actionError = ref('')
-
-function toggleQuestion(questionId) {
-  expandedQuestionId.value = expandedQuestionId.value === questionId ? null : questionId
-}
 
 async function del(id) {
   if (deletingIds.value.has(id) || !confirm('Удалить прохождение?')) return
@@ -182,7 +133,3 @@ const sortedAttempts = computed(() => {
   })
 })
 </script>
-
-<style scoped>
-.ge-expanded-chevron { transform: rotate(180deg); }
-</style>

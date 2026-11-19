@@ -4,7 +4,8 @@ export async function mockPlatform(page, role = 'student') {
     ui_config: {}, allow_intermediate_check: true }
   const state = {
     user: { id: 1, name: 'Пользователь', role },
-    fail: {}, saves: [], checks: 0, finishes: 0, reads: 0, testUpdates: [], onSave: null, questionSummary: [], wrongAnswers: [],
+    fail: {}, saves: [], checks: 0, finishes: 0, reads: 0, testUpdates: [], onSave: null,
+    questionReview: [], reviewQuestions: {}, wrongAnswers: {},
     test: { id: 1, title: 'Проверочный тест', description: '', code: 'ABC', is_active: false, time_limit: null,
       attempt_count: 0, variants: [{ id: 1, title: 'Вариант 1', questions: [question] }] },
     attempt: { id: 1, test_id: 1, test_title: 'Проверочный тест', user_name: 'Ученик', variant_title: 'Вариант 1',
@@ -49,10 +50,16 @@ export async function mockPlatform(page, role = 'student') {
     }
     if (path === '/api/my-attempts' || path === '/api/tests/1/attempts') return route.fulfill({ json: [state.attempt] })
     if (path === '/api/tests/1/results') {
-      return route.fulfill({ json: { attempts: [state.attempt], question_summary: state.questionSummary } })
+      return route.fulfill({ json: { attempts: [state.attempt], question_review: state.questionReview } })
     }
-    if (path === '/api/tests/1/questions/2/wrong-answers') {
-      return route.fulfill({ json: { answers: state.wrongAnswers, distinct_count: state.wrongAnswers.length } })
+    const reviewOrder = path.match(/^\/api\/tests\/1\/question-review\/(\d+)$/)?.[1]
+    if (reviewOrder !== undefined) {
+      return route.fulfill({ json: { questions: state.reviewQuestions[reviewOrder] || [] } })
+    }
+    const wrongAnswerQuestion = path.match(/^\/api\/tests\/1\/questions\/(\d+)\/wrong-answers$/)?.[1]
+    if (wrongAnswerQuestion !== undefined) {
+      const answers = state.wrongAnswers[wrongAnswerQuestion] || []
+      return route.fulfill({ json: { answers, distinct_count: answers.length } })
     }
     if (path === '/api/tests') return route.fulfill({ json: [state.test] })
     if (path === '/api/test-groups') return route.fulfill({ json: [] })
