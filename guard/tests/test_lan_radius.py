@@ -59,6 +59,17 @@ def test_reject_forgery_expiry_revocation_and_non_router_source(radius):
     radius.retain(set())
     reply=packet.AuthPacket(packet=radius.response(raw,'192.0.2.1'),secret=radius.secret,dict=radius.dictionary)
     assert reply.code==packet.AccessReject
+
+
+def test_authenticated_nas_probe_learns_ip_without_granting_access(radius):
+    username,password=radius.grant('02:00:00:00:00:01',None,None,probe=True)
+    req=request_for(radius,username,password)
+    req['Framed-IP-Address']='10.1.30.2'
+    raw=radius.response(req.RequestPacket(),'192.0.2.1')
+    assert packet.AuthPacket(packet=raw,secret=radius.secret,dict=radius.dictionary).code==packet.AccessReject
+    assert radius.address('02:00:00:00:00:01')=='10.1.30.2'
+    radius.addresses['02:00:00:00:00:01']=('10.1.30.2',time.monotonic()-9)
+    assert radius.address('02:00:00:00:00:01') is None
     username,password=radius.grant('02:00:00:00:00:01','10.1.30.2','epoch-1')
     radius.grants[username]['until']=time.monotonic()-1
     req=request_for(radius,username,password)

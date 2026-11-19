@@ -35,7 +35,26 @@ class CaptiveEnforcer(RciClient):
         self.radius = LanRadius(str(listen), str(router_ip), secret, self.nas_id,
                                 settings['auth_port'], settings['acct_port'])
         self.renewed = {}
+        self.probed, self.session_cache = {}, (0, [])
         self.radius.start()
+
+    def address_for(self, mac, interface):
+        if interface != self.bridge:
+            return None
+        if time.monotonic()-self.session_cache[0] > .5:
+            self.session_cache = (time.monotonic(), self.sessions())
+        for row in self.session_cache[1]:
+            if row.get('mac','').lower() == mac:
+                return row.get('ip')
+        if time.monotonic()-self.probed.get(mac,0) >= 3:
+            username,password = self.radius.grant(mac,None,None,probe=True)
+            self.api('/rci/parse','interface '+self.chilli+' chilli login '+mac+' username '+username+' password '+password)
+            self.probed[mac] = time.monotonic()
+            # Bound wait for the local NAS response; never grant access to a probe.
+            for _ in range(10):
+                if self.radius.address(mac):break
+                time.sleep(.01)
+        return self.radius.address(mac)
 
     def api(self, path, payload=None):
         allowed = {'/rci/parse', '/rci/show/ipv6/route', '/rci/interface/'+self.chilli,

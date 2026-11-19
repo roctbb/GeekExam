@@ -2,6 +2,7 @@
 import hashlib
 import hmac
 import io
+import ipaddress
 import secrets
 import select
 import socket
@@ -32,6 +33,7 @@ class LanRadius:
         self.secret = secret.encode()
         self.router_ip, self.nas_id = router_ip, nas_id
         self.lock, self.grants = threading.Lock(), {}
+        self.addresses = {}
         self.stopping = threading.Event()
         self.sockets = []
         try:
@@ -42,16 +44,21 @@ class LanRadius:
             self.stop(); raise RouterError('lan_radius_bind_failed') from None
         self.thread = threading.Thread(target=self.run, daemon=True, name='guard-lan-radius')
 
-    def grant(self, mac, ip, epoch):
+    def grant(self, mac, ip, epoch, *, probe=False):
         with self.lock:
             self.grants = {k:v for k,v in self.grants.items() if v['until'] > time.monotonic()}
             username, password = 'guard-'+secrets.token_hex(12), secrets.token_urlsafe(24)
-            self.grants[username] = {'password':password, 'mac':mac, 'ip':ip, 'epoch':epoch, 'until':time.monotonic()+12}
+            self.grants[username] = {'password':password, 'mac':mac, 'ip':ip, 'epoch':epoch, 'until':time.monotonic()+12,'probe':probe}
         return username, password
 
     def retain(self, allowed):
         with self.lock:
-            self.grants = {k:v for k,v in self.grants.items() if (v['mac'],v['ip'],v['epoch']) in allowed and v['until'] > time.monotonic()}
+            self.grants = {k:v for k,v in self.grants.items() if (v['probe'] or (v['mac'],v['ip'],v['epoch']) in allowed) and v['until'] > time.monotonic()}
+
+    def address(self, mac):
+        with self.lock:
+            value = self.addresses.get(mac)
+            return value[0] if value and time.monotonic()-value[1] < 8 else None
 
     def response(self, raw, source, accounting=False):
         from pyrad import packet
@@ -83,6 +90,15 @@ class LanRadius:
                         permitted = len(chap) == 17 and hmac.compare_digest(chap[1:], expected)
                     else:
                         permitted = False
+                probe = bool(grant and grant['probe'])
+                if permitted and probe:
+                    # Keenetic's ordinary hotspot table reports 0.0.0.0 before UAM
+                    # login. This NAS-authenticated probe reads its DHCP identity
+                    # while ALWAYS rejecting network access.
+                    address = ipaddress.IPv4Address(request.get('Framed-IP-Address',['0.0.0.0'])[0])
+                    if address.is_private and not address.is_unspecified and not address.is_loopback and not address.is_multicast:
+                        self.addresses[grant['mac']] = (str(address),time.monotonic())
+                    permitted = False
             reply = request.CreateReply()
             reply.code = packet.AccessAccept if permitted else packet.AccessReject
             if permitted:
@@ -90,7 +106,8 @@ class LanRadius:
                 reply['Session-Timeout'] = 30
                 reply['Idle-Timeout'] = 30
             reply.add_message_authenticator()
-            print('{"status":"lan_radius_accepted"}' if permitted else '{"status":"lan_radius_rejected"}', flush=True)
+            if not probe:
+                print('{"status":"lan_radius_accepted"}' if permitted else '{"status":"lan_radius_rejected"}', flush=True)
             return reply.ReplyPacket()
         except (ValueError, TypeError, KeyError, IndexError, UnicodeError, packet.PacketError):
             return None

@@ -31,9 +31,10 @@ def uptime(value):
 
 
 class Observer:
-    def __init__(self, client, interfaces, aliases=None):
+    def __init__(self, client, interfaces, aliases=None, address_resolver=None):
         self.client, self.interfaces, self.previous = client, set(interfaces), {}
         self.aliases = aliases or {}
+        self.address_resolver = address_resolver
         self.last_complete = None
 
     def read(self):
@@ -56,6 +57,8 @@ class Observer:
             if interface not in self.interfaces:
                 continue
             address = host.get("ip")
+            if interface in self.interfaces and self.address_resolver and address in {None, '', '0.0.0.0'}:
+                address = self.address_resolver(mac, interface)
             if address:
                 try:
                     parsed = ipaddress.IPv4Address(address)

@@ -79,6 +79,7 @@ def run(config, config_path, *, enforce=False, once=False):
         from .captive import CaptiveEnforcer
         driver = CaptiveEnforcer(config['router_url'], config.get('username','admin'),password,timeout=4,
                                  settings=captive, interfaces=config['student_interfaces'])
+        observer.address_resolver = driver.address_for
     mode, boot, sequence = "enforce" if driver else "observe", str(uuid.uuid4()), 0
     proof_server, proof_retry_at = None, 0
     cache_path = Path(str(config_path) + ".policy.json")
