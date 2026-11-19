@@ -1,11 +1,17 @@
 import json
-from collections import Counter
+from collections import Counter, defaultdict
 
 from sqlalchemy.orm import defer
 
 from checkers.check_identity import answer_fingerprint
 from checkers.check_types.exact import normalize_text
 from models import Answer, Attempt, Question, Variant, db
+
+
+def _latest_answer_ids(test_id):
+    return (db.select(db.func.max(Answer.id)).select_from(Answer).join(Attempt)
+            .where(Attempt.test_id == test_id, Attempt.finished_at.is_not(None))
+            .group_by(Answer.attempt_id, Answer.question_id))
 
 
 def _graded_answers(test_id):
@@ -16,6 +22,7 @@ def _graded_answers(test_id):
     ).filter(
         Attempt.test_id == test_id, Attempt.finished_at.is_not(None), Attempt.is_checked.is_(True),
         Answer.check_state == 'checked', Answer.points.is_not(None),
+        Answer.id.in_(_latest_answer_ids(test_id)),
     )
 
 
@@ -27,31 +34,49 @@ def question_results(test_id):
         Variant.test_id == test_id,
     ).order_by(Variant.order, Variant.id, Question.order, Question.id).all()
 
+    # Each finished attempt contributes once to every question in its own variant.
+    final_grade = db.and_(Attempt.is_checked.is_(True), Answer.check_state == 'checked', Answer.points.is_not(None))
     below_max = Answer.points < Question.max_points
-    grades = _graded_answers(test_id).with_entities(
-        Answer.question_id, Question.type, below_max, db.case((below_max, Answer.value)),
-    ).yield_per(100)
-    graded, below, skipped = Counter(), Counter(), Counter()
-    for question_id, question_type, is_below_max, value in grades:
-        graded[question_id] += 1
-        if is_below_max:
-            below[question_id] += 1
-            if not _has_submitted_content(value, question_type):
-                skipped[question_id] += 1
+    outcomes = db.session.query(
+        Question.id, Question.type, Attempt.is_checked, final_grade, below_max,
+        db.case((db.and_(Attempt.is_checked.is_(True), db.or_(~final_grade, below_max)), Answer.value)),
+    ).select_from(Question).join(
+        Attempt, Attempt.variant_id == Question.variant_id,
+    ).outerjoin(Answer, db.and_(
+        Answer.attempt_id == Attempt.id, Answer.question_id == Question.id,
+        Answer.id.in_(_latest_answer_ids(test_id)),
+    )).filter(Attempt.test_id == test_id, Attempt.finished_at.is_not(None)).yield_per(100)
+
+    counts = defaultdict(Counter)
+    for question_id, question_type, work_checked, scored, is_below_max, value in outcomes:
+        row = counts[question_id]
+        if scored:
+            row['graded_count'] += 1
+            row['below_max_count'] += int(is_below_max)
+        if not work_checked:
+            row['ungraded_count'] += 1
+        elif scored and not is_below_max:
+            row['correct_count'] += 1
+        elif not _has_submitted_content(value, question_type):
+            row['skipped_count'] += 1
+        elif scored:
+            row['incorrect_count'] += 1
+        else:
+            row['ungraded_count'] += 1
 
     summary = []
     by_order = {}
     for row in rows:
-        graded_count, below_count = graded[row.question_id], below[row.question_id]
-        item = dict(question_id=row.question_id, title=row.title, order=row.order,
-                    variant_title=row.variant_title, graded_count=graded_count, below_max_count=below_count)
-        if graded_count:
-            summary.append(item)
+        outcome = counts[row.question_id]
+        if outcome['graded_count']:
+            summary.append(dict(question_id=row.question_id, title=row.title, order=row.order,
+                                variant_title=row.variant_title, graded_count=outcome['graded_count'],
+                                below_max_count=outcome['below_max_count']))
         group = by_order.setdefault(row.order, {'order': row.order, 'title': row.title, 'variants': []})
-        skipped_count = skipped[row.question_id]
         group['variants'].append(dict(
             question_id=row.question_id, title=row.title, variant_id=row.variant_id, variant_title=row.variant_title,
-            correct_count=graded_count - below_count, incorrect_count=below_count - skipped_count, skipped_count=skipped_count,
+            correct_count=outcome['correct_count'], incorrect_count=outcome['incorrect_count'],
+            skipped_count=outcome['skipped_count'], ungraded_count=outcome['ungraded_count'],
         ))
 
     summary.sort(key=lambda row: (-row['below_max_count'] / row['graded_count'], -row['below_max_count']))

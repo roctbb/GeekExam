@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from flask import Flask
+from guard_admission import Admission, record_binding
 from models import db, User, Test, Variant, Attempt
 from presence_models import PresenceConfig, PresenceEvent, AttemptPresence, PresenceClient, PresenceHeartbeat
 from routes.presence import presence_bp
@@ -208,6 +209,38 @@ class PresenceTests(unittest.TestCase):
             call.assert_called_with('rooms',1,room_id='room',user_id=2)
         with patch('guard_client.call',return_value={'candidates':[{**candidate,'user_id':3}]}):
             self.assertEqual(self.teacher.post('/api/attempts/1/presence/binding',json=payload).status_code,409)
+
+    def test_snapshot_preserves_strict_admission_after_guard_is_disabled(self):
+        self.setup_binding()
+        url = '/api/tests/1/presence'
+        with self.app.app_context():
+            service.event(1, 'legacy-proof', 'binding_confirmed', self.clock, attempt_id=1,
+                          details={'method': 'browser_lan_proof', 'proof_id': 'legacy', 'client_code': 'OLD'})
+            db.session.commit()
+        self.assertFalse(self.teacher.get(url).json['attempts'][0]['guard_admitted'])
+
+        with self.app.app_context():
+            attempt = db.session.get(Attempt, 1)
+            config = db.session.get(PresenceConfig, 1)
+            admission = Admission(attempt.test_id, attempt.user_id, config.version, config.guard_room_id, 1)
+            stamp = utc_iso(self.clock)
+            candidate = {'user_id': 2, 'authorized': True, 'method': 'browser_lan_proof',
+                         'session_id': 'session', 'device_id': 'd', 'router_id': 'r',
+                         'last_confirmed_at': stamp, 'proved_at': stamp}
+            record_binding(attempt, admission, candidate, 'strict-proof')
+            record_binding(attempt, admission, candidate, 'repeat-proof')
+            db.session.commit()
+            version = config.version
+        strict = self.teacher.get(url).json['attempts'][0]
+        self.assertTrue(strict['guard_admitted'])
+        self.assertEqual(strict['event_count'], 2)
+
+        response = self.teacher.put(url, json={'version': version, 'enabled': True,
+                                              'room_id': None, 'require_guard': False})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json['config']['require_guard'])
+        self.assertTrue(response.json['attempts'][0]['guard_admitted'])
+        self.assertFalse(response.json['attempts'][0]['guard']['bound'])
 
     def test_config_cas_and_browser_origin(self):
         self.register()

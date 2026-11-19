@@ -2,7 +2,7 @@
   <div class="ge-fade-in">
     <div class="ge-page-header">
       <h4>Мои результаты</h4>
-      <button type="button" class="btn btn-sm btn-outline-secondary" :disabled="refreshing" @click="refresh">Обновить</button>
+      <IconAction icon="retry" label="Обновить" :busy="refreshing" @click="refresh" />
     </div>
     <div v-if="error" class="alert alert-danger" role="alert">
       {{ error }} <button class="btn btn-sm btn-outline-danger" :disabled="refreshing" @click="refresh">Повторить</button>
@@ -15,7 +15,7 @@
     </div>
     <div v-else-if="attempts.length" class="table-responsive">
       <table class="table table-hover align-middle">
-        <thead><tr><th>Тест</th><th>Вариант</th><th>Дата</th><th>Результат</th><th></th></tr></thead>
+        <thead><tr><th>Тест</th><th>Вариант</th><th>Дата</th><th>Результат</th><th aria-label="Действия"></th></tr></thead>
         <tbody>
           <tr v-for="a in attempts" :key="a.id">
             <td class="fw-semibold">{{ a.test_title }}</td>
@@ -27,8 +27,8 @@
               <span v-else class="ge-score">{{ a.total_points }}/{{ a.max_points }}</span>
             </td>
             <td class="text-end">
-              <RouterLink v-if="a.finished_at" :to="`/my-results/${a.id}`" class="btn btn-sm btn-outline-primary"><AppIcon name="open" />Подробнее</RouterLink>
-              <RouterLink v-else :to="`/attempt/${a.id}`" class="btn btn-sm btn-outline-warning"><AppIcon name="play" />Продолжить</RouterLink>
+              <IconAction v-if="a.finished_at" icon="open" label="Подробнее" tone="primary" :to="`/my-results/${a.id}`" />
+              <IconAction v-else icon="play" label="Продолжить тест" tone="primary" :to="`/attempt/${a.id}`" />
             </td>
           </tr>
         </tbody>

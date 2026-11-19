@@ -48,6 +48,16 @@ def event(test_id,key,kind,at,*,attempt_id=None,router_id=None,last_confirmed=No
     return row
 
 
+def guard_admission_event():
+    # Strict test admission uses a test-scoped proof, before any attempt client is registered.
+    return db.and_(
+        PresenceEvent.kind == 'binding_confirmed',
+        PresenceEvent.details['method'].as_string() == 'browser_lan_proof',
+        PresenceEvent.details['proof_id'].as_string().is_not(None),
+        PresenceEvent.details['client_code'].as_string().is_(None),
+    )
+
+
 def exam_status(attempt,at):
     clients=db.session.execute(db.select(PresenceClient).where(PresenceClient.attempt_id==attempt.id)).scalars().all()
     last=max((client.last_seen_at for client in clients),default=None)
@@ -261,16 +271,25 @@ def snapshot(test):
     rows={row.attempt_id:row for row in db.session.execute(db.select(AttemptPresence).where(AttemptPresence.attempt_id.in_([a.id for a in attempts]))).scalars()}
     events=db.session.execute(db.select(PresenceEvent).where(PresenceEvent.test_id==test.id,
         PresenceEvent.attempt_id.is_(None)).order_by(PresenceEvent.started_at.desc()).limit(50)).scalars().all()
-    counts={row[0]:(row[1],row[2]) for row in db.session.execute(db.select(PresenceEvent.attempt_id,
-        db.func.count(),db.func.sum(db.case((db.and_(PresenceEvent.review_required.is_(True),PresenceEvent.reviewed_at.is_(None)),1),else_=0)))
-        .where(PresenceEvent.test_id==test.id).group_by(PresenceEvent.attempt_id))}
+    awaiting_review = db.and_(PresenceEvent.review_required.is_(True), PresenceEvent.reviewed_at.is_(None))
+    counts = {
+        attempt_id: (total, reviews, guard_admitted)
+        for attempt_id, total, reviews, guard_admitted in db.session.execute(
+            db.select(
+                PresenceEvent.attempt_id, db.func.count(),
+                db.func.sum(db.case((awaiting_review, 1), else_=0)),
+                db.func.max(db.case((guard_admission_event(), 1), else_=0)),
+            ).where(PresenceEvent.test_id == test.id, PresenceEvent.attempt_id.is_not(None))
+            .group_by(PresenceEvent.attempt_id)
+        )
+    }
     result=[]
     for attempt in attempts:
         state=rows.get(attempt.id);exam=exam_status(attempt,at)
-        total,reviews=counts.get(attempt.id,(0,0))
+        total, reviews, guard_admitted = counts.get(attempt.id, (0, 0, 0))
         current=state.guard_state if state else 'unbound'
         if state and state.guard_checked_at and at-state.guard_checked_at>timedelta(seconds=GUARD_TTL) and not attempt.finished_at:current='unknown'
-        result.append({'attempt_id':attempt.id,'exam':exam,'guard':{'state':current,
+        result.append({'attempt_id':attempt.id,'guard_admitted':bool(guard_admitted),'exam':exam,'guard':{'state':current,
             'reason':state.guard_reason if state else None,'since':utc_iso(state.guard_since) if state else None,
             'last_confirmed_at':utc_iso(state.guard_last_confirmed_at) if state else None,
             'checked_at':utc_iso(state.guard_checked_at) if state else None,

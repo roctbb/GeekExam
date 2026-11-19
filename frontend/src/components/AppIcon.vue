@@ -7,9 +7,9 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import {
   faArrowDown, faArrowLeft, faArrowRight, faArrowUp, faChartColumn,
   faCheck, faChevronDown, faCircleCheck, faCircleHalfStroke, faCircleXmark, faClipboardList,
-  faClock, faEye, faFileArrowUp, faFlagCheckered, faFloppyDisk, faFolderOpen,
+  faClock, faClockRotateLeft, faEye, faFileArrowUp, faFlagCheckered, faFloppyDisk, faFolderOpen, faGear,
   faKey, faMinus, faMoon, faPenToSquare, faPlay, faPlus, faRightFromBracket,
-  faRightToBracket, faRotateRight, faStop, faSun, faTrashCan, faTriangleExclamation,
+  faRightToBracket, faRotateRight, faStop, faSun, faTrashCan, faTriangleExclamation, faXmark,
 } from '@fortawesome/free-solid-svg-icons'
 
 // Keep the icon set explicit so the rest of Font Awesome is removed from the build.
@@ -22,7 +22,7 @@ const icons = {
   open: faFolderOpen, key: faKey, minus: faMinus, moon: faMoon, edit: faPenToSquare,
   play: faPlay, plus: faPlus, logout: faRightFromBracket, login: faRightToBracket,
   retry: faRotateRight, stop: faStop, sun: faSun, delete: faTrashCan,
-  warning: faTriangleExclamation,
+  warning: faTriangleExclamation, history: faClockRotateLeft, settings: faGear, close: faXmark,
 }
 
 export default {

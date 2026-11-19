@@ -51,8 +51,8 @@ export async function mockPlatform(page, role = 'student') {
       return route.fulfill({ json: { ...state.attempt, server_time: new Date().toISOString() } })
     }
     if (path === '/api/my-attempts' || path === '/api/tests/1/attempts') return route.fulfill({ json: [state.attempt] })
-    if (path === '/api/tests/1/results') {
-      return route.fulfill({ json: { attempts: [state.attempt], question_review: state.questionReview } })
+    if (path === '/api/tests/1/question-review') {
+      return route.fulfill({ json: { title: state.test.title, question_review: state.questionReview } })
     }
     if (path === '/api/tests/1/presence/settings') return route.fulfill({ json: state.presence })
     if (path === '/api/tests/1/presence') {

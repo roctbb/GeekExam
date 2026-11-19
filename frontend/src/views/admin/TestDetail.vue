@@ -7,10 +7,10 @@
       <div class="d-flex gap-2 flex-wrap">
         <button v-if="!test.is_active" class="btn btn-success btn-sm" :disabled="!!pending || !test.code" @click="activate"><AppIcon name="play" />Запустить</button>
         <button v-else class="btn btn-warning btn-sm" :disabled="!!pending" @click="deactivate"><AppIcon name="stop" />Остановить</button>
-        <RouterLink :to="`/admin/tests/${test.id}/preview`" class="btn btn-outline-primary btn-sm"><AppIcon name="preview" />Просмотр как ученик</RouterLink>
-        <RouterLink :to="`/admin/tests/${test.id}/edit`" class="btn btn-outline-secondary btn-sm"><AppIcon name="edit" />Редактировать</RouterLink>
+        <IconAction icon="preview" label="Просмотр как ученик" tone="primary" :to="`/admin/tests/${test.id}/preview`" />
+        <IconAction icon="edit" label="Редактировать" :to="`/admin/tests/${test.id}/edit`" />
         <RouterLink :to="`/admin/tests/${test.id}/results`" class="btn btn-outline-primary btn-sm"><AppIcon name="results" />Результаты</RouterLink>
-        <button class="btn btn-outline-danger btn-sm" :disabled="!!pending" @click="removeTest"><AppIcon name="delete" />Удалить</button>
+        <IconAction icon="delete" label="Удалить" tone="danger" :disabled="!!pending" :busy="pending === 'delete'" @click="removeTest" />
       </div>
     </div>
     <div class="card mb-4">

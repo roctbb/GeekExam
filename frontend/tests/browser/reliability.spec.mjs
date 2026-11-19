@@ -91,21 +91,53 @@ test('result page recovers completion with no websocket event', async ({ page })
   await expect(page.locator('.ge-score')).toHaveText('5 / 5', { timeout: 8000 })
 })
 
+test('results show the GeekExam connection column only while attempts are active', async ({ page }) => {
+  const state = await mockPlatform(page, 'teacher')
+  state.attempt.user_name = 'Активный ученик'
+  const finishedAt = '2026-10-10T12:30:00Z'
+  const finished = { ...state.attempt, id: 2, user_name: 'Завершивший ученик', finished_at: finishedAt }
+  await page.route('**/api/tests/1/attempts', route => route.fulfill({ json: [state.attempt, finished] }))
+  await page.route('**/api/tests/1/presence', route => route.fulfill({ json: {
+    ...state.presence,
+    attempts: [
+      { attempt_id: 1, exam: { state: 'online' } },
+      { attempt_id: 2, exam: { state: 'finished' } },
+    ],
+  } }))
+
+  await page.goto('/admin/tests/1/results')
+  const column = page.getByRole('columnheader', { name: 'GeekExam', exact: true })
+  await expect(column).toBeVisible()
+  await expect(page.getByRole('row', { name: /Активный ученик/ }).getByText('Онлайн', { exact: true })).toBeVisible()
+  await expect(page.getByRole('table').getByText('Завершено', { exact: true })).toHaveCount(0)
+
+  state.attempt.finished_at = finishedAt
+  await page.getByRole('button', { name: 'Обновить', exact: true }).click()
+  await expect(column).toHaveCount(0)
+  await expect(page.getByRole('row', { name: /Завершивший ученик/ })).toBeVisible()
+})
+
 test('teacher reviews answer proportions and reveals answers for every variant', async ({ page }) => {
   const state = await mockPlatform(page, 'teacher')
   await page.goto('/admin/tests/1')
   await page.getByRole('link', { name: 'Результаты', exact: true }).click()
-  await expect(page.getByText('Пока нет оценённых ответов в проверенных работах.')).toBeVisible()
   await expect(page.getByText('В процессе', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Как ответили на задания' })).toHaveCount(0)
+  await page.getByRole('link', { name: 'Сводка по заданиям' }).click()
+  await expect(page).toHaveURL('/admin/tests/1/question-review')
+  await expect(page.getByText('Пока нет завершённых работ.')).toBeVisible()
 
   Object.assign(state.attempt, { finished_at: '2026-10-10T12:30:00Z', is_checked: true, total_points: 4 })
   state.questionReview = [
     { order: 0, title: 'Условия', variants: [
-      { question_id: 1, title: 'Условия', variant_title: 'Вариант 1', correct_count: 15, incorrect_count: 5, skipped_count: 0 },
+      { question_id: 1, title: 'Условия', variant_title: 'Вариант 1', correct_count: 15, incorrect_count: 5, skipped_count: 0, ungraded_count: 0 },
     ] },
     { order: 1, title: 'Циклы', variants: [
-      { question_id: 2, title: 'Циклы', variant_title: 'Вариант 1', correct_count: 1, incorrect_count: 2, skipped_count: 1 },
-      { question_id: 4, title: 'Циклы', variant_title: 'Вариант 2', correct_count: 3, incorrect_count: 2, skipped_count: 0 },
+      { question_id: 2, title: 'Циклы', variant_title: 'Вариант 1', correct_count: 1, incorrect_count: 2, skipped_count: 1, ungraded_count: 1 },
+      { question_id: 4, title: 'Циклы', variant_title: 'Вариант 2', correct_count: 3, incorrect_count: 2, skipped_count: 0, ungraded_count: 0 },
+    ] },
+    { order: 4, title: 'Самый длинный отрезок', variants: [
+      { question_id: 5, title: 'Самый длинный отрезок', variant_title: 'Вариант 1', correct_count: 5, incorrect_count: 0, skipped_count: 6, ungraded_count: 0 },
     ] },
   ]
   state.reviewQuestions = {
@@ -116,19 +148,25 @@ test('teacher reviews answer proportions and reveals answers for every variant',
     ],
   }
   await page.getByRole('button', { name: 'Обновить', exact: true }).click()
-  const summary = page.getByRole('group', { name: 'Задания по доле ответов с ошибкой' })
+  const summary = page.getByRole('group', { name: 'Задания по доле ошибок и пропусков' })
   const firstQuestion = summary.getByRole('button').first()
-  await expect(firstQuestion).toContainText('2. Циклы')
-  await expect(firstQuestion).toContainText('50% / 50%')
+  await expect(firstQuestion).toContainText('5. Самый длинный отрезок')
+  await expect(firstQuestion).toContainText('5 из 11 верно · 45%')
+  await expect(firstQuestion).toContainText('0 с ошибкой · Пропустили 6')
   await expect(firstQuestion).toHaveAttribute('aria-pressed', 'true')
-  await expect(summary.getByRole('button', { name: /Условия/ })).toContainText('75% / 25%')
-  await expect(page.getByText('4/5', { exact: true })).toBeVisible()
+  const greenFraction = await firstQuestion.locator('.ge-answer-ratio-correct').evaluate(segment =>
+    segment.getBoundingClientRect().width / segment.parentElement.getBoundingClientRect().width)
+  expect(greenFraction).toBeCloseTo(5 / 11, 2)
+  await expect(summary.getByRole('button', { name: /Условия/ })).toContainText('15 из 20 верно · 75%')
+  const cycles = summary.getByRole('button', { name: /Циклы/ })
+  await expect(cycles).toContainText('4 из 10 верно · 40%')
+  await cycles.click()
 
   const variants = page.getByRole('region', { name: '2. Циклы' })
   await expect(variants.getByRole('article')).toHaveCount(2)
   await expect(variants.getByText('Цикл в первом варианте')).toBeVisible()
   await expect(variants.getByText('Цикл во втором варианте')).toBeVisible()
-  await expect(variants.getByText('1 верно · 2 с ошибкой · Пропустили 1')).toBeVisible()
+  await expect(variants.getByText('1 верно · 2 с ошибкой · Пропустили 1 · 1 без оценки')).toBeVisible()
   await expect(variants.getByText('Ожидаемый ответ')).toHaveCount(0)
 
   const wrongAnswersUrl = '/api/tests/1/questions/2/wrong-answers'
@@ -155,6 +193,9 @@ test('teacher reviews answer proportions and reveals answers for every variant',
   const nextTask = page.getByRole('region', { name: '1. Условия' })
   await expect(nextTask.getByText('Условие с if')).toBeVisible()
   await expect(nextTask.getByRole('button', { name: 'Показать ответы' })).toHaveAttribute('aria-expanded', 'false')
+  await page.getByRole('link', { name: 'К результатам' }).click()
+  await expect(page).toHaveURL('/admin/tests/1/results')
+  await expect(page.getByText('4/5', { exact: true })).toBeVisible()
 })
 
 test('editor guards changes, retains unsaved questions after saving params, and restores after reload', async ({ page }) => {
