@@ -80,3 +80,14 @@ class PresenceEvent(db.Model):
     reviewed_by = db.Column(db.Integer,db.ForeignKey('users.id'))
     review_note = db.Column(db.String(500))
     __table_args__ = (db.UniqueConstraint('test_id','source_key',name='uq_presence_event_source'),)
+    wifi_alert = db.relationship('ExamWifiAlert', uselist=False, passive_deletes='all')
+
+
+class ExamWifiAlert(db.Model):
+    __tablename__ = 'exam_wifi_alerts'
+    event_id = db.Column(db.String(36), db.ForeignKey('presence_events.id', ondelete='CASCADE'), primary_key=True)
+    payload = db.Column(db.JSON, nullable=False)
+    status = db.Column(db.String(32), nullable=False, default='pending')
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    available_at = db.Column(db.DateTime, nullable=False)
+    __table_args__ = (db.Index('ix_exam_wifi_alert_due', 'status', 'available_at'),)

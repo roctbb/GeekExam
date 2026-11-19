@@ -614,7 +614,14 @@ class PlatformRegressionTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         test_id = response.json['id']
         teacher.put(f'/api/tests/{test_id}/code', json={'code': 'NEW'})
+        with self.app.app_context():
+            db.session.add(User(id=4, name='Class teacher', role='teacher'))
+            db.session.commit()
+        leader = self.login(4, 'teacher')
+        self.assertEqual(leader.post(f'/api/tests/{test_id}/activate').status_code, 200)
         self.assertEqual(teacher.post(f'/api/tests/{test_id}/activate').status_code, 200)
+        with self.app.app_context():
+            self.assertEqual(db.session.get(Test, test_id).activated_by, 4)
 
     def test_legacy_empty_test_cannot_be_activated_or_joined(self):
         with self.app.app_context():

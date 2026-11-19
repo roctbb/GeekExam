@@ -1,12 +1,13 @@
 """Correlate independently timestamped connection evidence. Never change grades."""
-from datetime import datetime,timedelta,timezone
+from datetime import datetime,timedelta
 import hashlib
 
 from flask import current_app
 from models import db,Attempt,Test
 from presence_models import PresenceConfig,PresenceClient,PresenceHeartbeat,AttemptPresence,PresenceEvent
-from time_utils import utc_iso
+from time_utils import parse_utc as parse, utc_iso
 import guard_client
+from wifi_alerts import queue_departure
 
 HEARTBEAT_TTL=20
 GUARD_TTL=20
@@ -14,12 +15,6 @@ GUARD_TTL=20
 
 def now():
     return current_app.config.get('PRESENCE_NOW',datetime.utcnow)()
-
-
-def parse(value):
-    if not value:return None
-    parsed=datetime.fromisoformat(value.replace('Z','+00:00'))
-    return (parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed).astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def ensure_config(test):
@@ -71,7 +66,10 @@ def update_review_evidence(attempt):
         if heartbeat:
             row.exam_continued_at=heartbeat.received_at
             row.review_required=True
-            row.details={**row.details,'evidence_client_id':heartbeat.client_id,'evidence_sequence':heartbeat.sequence}
+            bound_client_id = row.details.get('binding_client_id')
+            scope = ('bound' if heartbeat.client_id == bound_client_id else 'other') if bound_client_id else 'unknown'
+            row.details={**row.details,'evidence_client_id':heartbeat.client_id,'evidence_sequence':heartbeat.sequence,
+                         'evidence_client_scope':scope}
 
 
 def close_guard_gaps(attempt):
@@ -166,6 +164,7 @@ def ingest_guard(config,attempts,data,at):
                 PresenceEvent.kind=='device_disconnected',PresenceEvent.ended_at.is_(None),PresenceEvent.started_at<recovered)).scalars():
                 if row.details.get('session_id')==state.guard_session_id:row.ended_at=recovered
         update_review_evidence(attempt)
+        queue_departure(config, attempt, state, item, routers, complete)
         if attempt.finished_at:finish_monitoring(attempt)
 
 
@@ -243,7 +242,8 @@ def event_view(row):
         'detected_at':utc_iso(row.detected_at),'last_confirmed_at':utc_iso(row.last_confirmed_at),
         'ended_at':utc_iso(row.ended_at),'exam_continued_at':utc_iso(row.exam_continued_at),
         'review_required':row.review_required,'reviewed_at':utc_iso(row.reviewed_at),
-        'review_note':row.review_note,'details':row.details}
+        'review_note':row.review_note,'details':row.details,
+        'notification_status':row.wifi_alert.status if row.kind=='device_disconnected' and row.wifi_alert else None}
 
 
 def settings_view(config):

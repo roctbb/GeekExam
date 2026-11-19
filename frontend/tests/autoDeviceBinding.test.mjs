@@ -19,6 +19,16 @@ test('first device is proved automatically without sending login credentials to 
   assert.equal(s.calls[0].token,'secret-browser-credential');assert.equal(s.states.at(-1),'bound')
   s.binding.stop()
 })
+test('a fresh heartbeat can request proof again after a Wi-Fi reconnect', async () => {
+  const {binding,calls} = setup()
+  const credentials = {client_id:'client',token:'secret'}
+  binding.begin(credentials); await settled()
+  binding.begin(credentials); await settled()
+  assert.equal(calls.length,1)
+  binding.begin(credentials,true); await settled()
+  assert.equal(calls.length,2)
+  binding.stop()
+})
 test('lost local acknowledgement can be recovered using server proof state',async()=>{
   const s=setup({fetchLocal:async()=>{throw Error('ack lost')}})
   s.binding.begin({client_id:'client',token:'secret'});await settled()

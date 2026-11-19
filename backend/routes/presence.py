@@ -4,6 +4,7 @@ import secrets
 from urllib.parse import urlsplit
 
 from flask import Blueprint, abort, jsonify, request
+from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
 from auth import api_login_required, teacher_required, current_user_id
@@ -45,6 +46,11 @@ def attempt_for_owner(attempt_id):
     if not attempt_access_allowed(attempt):
         abort(admission_error())
     return attempt
+
+
+def needs_new_proof(state, client):
+    return bool(state and state.guard_state == 'unbound' and state.bound_client_id == client.id
+                and state.guard_reason in {'connection_changed', 'binding_revoked', 'binding_expired', 'agent_restarted'})
 
 
 def valid_client(attempt, data):
@@ -117,7 +123,8 @@ def heartbeat(attempt_id):
     db.session.flush()
     service.update_exam_gaps(attempt, at)
     db.session.commit()
-    return jsonify(enabled=True, accepted=True, received_at=utc_iso(at))
+    return jsonify(enabled=True, accepted=True, received_at=utc_iso(at),
+                   renew_binding=config.require_guard and needs_new_proof(db.session.get(AttemptPresence, attempt_id), client))
 
 
 @presence_bp.get('/presence/rooms')
@@ -184,7 +191,7 @@ def configure(test_id):
                               service.now(), attempt_id=attempt.id, details={'reason':'monitor_configuration_changed'})
                 state.guard_session_id = state.bound_client_id = None
                 state.guard_state, state.guard_reason = 'unbound', 'monitor_configuration_changed'
-    config.guard_room_id, config.enabled = room_id, data['enabled']
+    config.guard_room_id, config.enabled = room_id, require_guard or data['enabled']
     config.require_guard = require_guard
     config.guard_room_name = room_name
     config.configured_by, config.updated_at = current_user_id(), service.now()
@@ -258,7 +265,7 @@ def bind(attempt_id):
 @teacher_required
 def history(attempt_id):
     attempt = db.get_or_404(Attempt, attempt_id)
-    rows = db.session.execute(db.select(PresenceEvent).where(PresenceEvent.test_id == attempt.test_id,
+    rows = db.session.execute(db.select(PresenceEvent).options(selectinload(PresenceEvent.wifi_alert)).where(PresenceEvent.test_id == attempt.test_id,
         db.or_(PresenceEvent.attempt_id == attempt_id, PresenceEvent.attempt_id.is_(None)))
         .order_by(PresenceEvent.started_at.desc()).limit(500)).scalars().all()
     return jsonify(items=[service.event_view(row) for row in rows], limit=500)

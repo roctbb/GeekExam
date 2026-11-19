@@ -389,13 +389,15 @@ def delete_test(test_id):
 @tests_bp.route('/api/tests/<int:test_id>/activate', methods=['POST'])
 @teacher_required
 def activate_test(test_id):
-    test = Test.query.get_or_404(test_id)
+    test = Test.query.filter_by(id=test_id).with_for_update().first_or_404()
     if not test.code:
         return jsonify({'error': 'Установите код теста перед запуском'}), 422
     try:
         validate_test_payload(_current_test_payload(test))
     except ValueError as e:
         return jsonify({'error': str(e)}), 422
+    if not test.is_active:
+        test.activated_by = current_user_id()
     test.is_active = True
     db.session.commit()
     return jsonify({'is_active': True})

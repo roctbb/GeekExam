@@ -4,9 +4,9 @@ from flask import abort, jsonify
 from auth import api_login_required, current_user_id
 from models import db, Attempt, Test
 from presence_models import PresenceConfig, AttemptPresence
-from .presence import presence_bp, body, valid_client
+from .presence import presence_bp, body, valid_client, needs_new_proof
 import guard_client
-from guard_admission import admission_error, attempt_access_allowed, confirmed_evidence, requires_guard
+from guard_admission import Admission, remember_admission, record_binding, admission_error, attempt_access_allowed, confirmed_evidence, requires_guard
 import presence_service as service
 
 
@@ -33,7 +33,7 @@ def start(attempt_id):
     if not requires_guard(config) or not config.enabled or not config.guard_room_id:
         return jsonify(state='disabled',reason='room_not_configured',items=[])
     state = db.session.get(AttemptPresence,attempt_id)
-    if state and state.guard_session_id and state.bound_client_id == client.id:
+    if state and state.guard_session_id and state.bound_client_id == client.id and not needs_new_proof(state, client):
         return jsonify(state='bound',items=[])
     payload = {'room_id':config.guard_room_id,'user_id':attempt.user_id,'attempt_id':attempt.id,
                'client_id':client.id,'require_authorized':True}
@@ -83,7 +83,15 @@ def finish(attempt_id):
             event.review_required = True
             db.session.commit()
             return jsonify(state='different_device',error='Эта попытка уже привязана к другому устройству. Сообщите преподавателю.'),409
-        # Keep the original observation window and sticky loss evidence intact.
+        if needs_new_proof(state, client) and state.guard_session_id != candidate['session_id']:
+            if not attempt_access_allowed(attempt):
+                abort(admission_error())
+            admission = Admission.for_test(attempt.test, config, user_id)
+            record_binding(attempt, admission, candidate, data['proof_id'])
+            state.bound_client_id = client_id
+            db.session.commit()
+            remember_admission(attempt, admission, candidate)
+            return jsonify(state='bound')
         db.session.commit()
         return jsonify(state='bound')
     state.guard_session_id,state.guard_device_id,state.guard_router_id = candidate['session_id'],candidate['device_id'],candidate['router_id']

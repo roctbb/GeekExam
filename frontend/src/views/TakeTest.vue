@@ -436,7 +436,7 @@ async function loadAttempt() {
     heartbeat: async data => (await api.heartbeat(route.params.id, data)).data,
     storage: presenceStorage, visible: () => document.visibilityState === 'visible',
     onChange: value => { presenceState.value = value },
-    onReady: value => deviceBinder?.begin(value),
+    onReady: (value, renew) => deviceBinder?.begin(value, renew),
   })
   presence.start()
   live = createLiveRefresh({

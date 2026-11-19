@@ -46,7 +46,7 @@ class PresenceTests(unittest.TestCase):
     def setup_binding(self):
         credentials=self.register();self.beat(credentials)
         with self.app.app_context():
-            config=db.session.get(PresenceConfig,1);config.guard_room_id='room';config.require_guard=True;db.session.add(AttemptPresence(attempt_id=1,
+            config=db.session.get(PresenceConfig,1);config.guard_room_id='room';config.guard_room_name='409';config.require_guard=True;db.session.add(AttemptPresence(attempt_id=1,
                 guard_session_id='session',bound_client_id=credentials['client_id'],binding_confirmed_at=self.clock,
                 binding_observed_at=self.clock,guard_state='online'))
             db.session.commit()
@@ -103,6 +103,7 @@ class PresenceTests(unittest.TestCase):
         self.clock+=timedelta(seconds=1);self.beat(creds,2)
         event=self.events()[0]
         self.assertTrue(event['review_required']);self.assertEqual(event['exam_continued_at'],utc_iso(self.clock))
+        self.assertEqual(event['details']['evidence_client_scope'], 'bound')
         self.clock+=timedelta(seconds=4);self.ingest(self.observation(loss_at=lost,recovered_at=self.clock))
         self.assertTrue(self.events()[0]['review_required']);self.assertIsNotNone(self.events()[0]['ended_at'])
         self.assertEqual(self.teacher.post('/api/presence/events/'+event['id']+'/review',json={'note':'Проверено'}).status_code,200)
@@ -264,6 +265,123 @@ class PresenceTests(unittest.TestCase):
             response = self.student.post('/api/attempts/1/presence/auto/finish', json={**credentials, 'proof_id': 'different'})
             self.assertEqual(response.json['state'], 'different_device')
         with self.app.app_context():self.assertEqual(db.session.get(AttemptPresence,1).guard_session_id,'session')
+
+    def wifi_snapshot(self, lost, **options):
+        data = self.observation(loss_at=lost, **options)
+        data['room']['routers'] = [{'id': 'router', 'fresh': True, 'observed_at': utc_iso(self.clock)}]
+        data['items'][0].update(router_id='router', device_id='device', reason='device_disconnected')
+        return data
+
+    def prepare_wifi_test(self):
+        credentials = self.setup_binding()
+        with self.app.app_context():
+            state = db.session.get(AttemptPresence, 1)
+            state.guard_router_id, state.guard_device_id = 'router', 'device'
+            db.session.commit()
+        return credentials
+
+    def test_wifi_grace_uses_router_time_and_persists_one_alert_without_an_exam_heartbeat(self):
+        import wifi_alerts
+        from presence_models import ExamWifiAlert
+        self.prepare_wifi_test()
+        with self.app.app_context():
+            db.session.add(User(id=4, role='teacher', name='Class teacher'))
+            db.session.flush()
+            db.session.get(Test, 1).activated_by = 4
+            db.session.commit()
+        lost = self.clock + timedelta(seconds=1)
+        self.clock = lost + timedelta(seconds=19)
+        stale = self.wifi_snapshot(lost)
+        self.ingest(stale)
+        self.clock += timedelta(seconds=5)
+        stale['server_time'] = utc_iso(self.clock)
+        self.ingest(stale)
+        self.assertIsNone(self.events()[0]['notification_status'])
+        self.ingest(self.wifi_snapshot(lost))
+        self.ingest(self.wifi_snapshot(lost))
+        with self.app.app_context():
+            alert = db.session.query(ExamWifiAlert).one()
+            self.assertEqual(alert.payload, dict(teacher_id=4, student_name='Student', test_title='Test',
+                room_name='409', event_id=alert.event_id, disconnected_at=utc_iso(lost)))
+            with patch('wifi_alerts.send', side_effect=[('retry', 30), ('sent', 0)]) as send:
+                self.assertTrue(wifi_alerts.deliver_next(self.clock))
+                self.assertFalse(wifi_alerts.deliver_next(self.clock + timedelta(seconds=29)))
+                self.assertTrue(wifi_alerts.deliver_next(self.clock + timedelta(seconds=30)))
+                self.assertEqual(send.call_args_list[0], send.call_args_list[1])
+                self.assertFalse(wifi_alerts.deliver_next(self.clock + timedelta(hours=1)))
+        self.assertEqual(self.events()[0]['notification_status'], 'sent')
+
+    def test_wifi_guard_outage_mass_recovery_identity_and_finished_attempt_suppress_alerts(self):
+        from copy import deepcopy
+        from presence_models import ExamWifiAlert
+        self.prepare_wifi_test()
+        lost = self.clock + timedelta(seconds=1)
+        self.clock = lost + timedelta(seconds=25)
+        good = self.wifi_snapshot(lost)
+        variants = [self.wifi_snapshot(lost, complete=False)]
+        for key, value in [('user_id', 3), ('device_id', 'other'), ('router_id', 'other'),
+                           ('state', 'unknown'), ('reason', 'binding_revoked')]:
+            data = deepcopy(good)
+            data['items'][0][key] = value
+            variants.append(data)
+        bad_router = deepcopy(good)
+        bad_router['room']['routers'][0].update(fresh=False)
+        variants.append(bad_router)
+        for sample in variants:
+            self.ingest(sample)
+        mass = self.wifi_snapshot(lost, mass=True)
+        mass['events'][0]['id'] = 'mass-loss'
+        self.ingest(self.wifi_snapshot(lost, recovered_at=lost + timedelta(seconds=8)))
+        self.ingest(mass)
+        with self.app.app_context():
+            self.assertEqual(db.session.query(ExamWifiAlert).count(), 0)
+            db.session.get(Attempt, 1).finished_at = self.clock
+            db.session.commit()
+        self.ingest(self.wifi_snapshot(lost + timedelta(seconds=1)))
+        with self.app.app_context():
+            self.assertEqual(db.session.query(ExamWifiAlert).count(), 0)
+
+    def test_non_strict_test_has_no_wifi_alert_and_strict_setting_enables_monitoring(self):
+        from presence_models import ExamWifiAlert
+        self.prepare_wifi_test()
+        with self.app.app_context():
+            config = db.session.get(PresenceConfig, 1)
+            config.require_guard = False
+            db.session.commit()
+            version = config.version
+        lost = self.clock
+        self.clock += timedelta(seconds=24)
+        self.ingest(self.wifi_snapshot(lost))
+        with self.app.app_context():
+            self.assertEqual(db.session.query(ExamWifiAlert).count(), 0)
+        with patch('guard_client.call', return_value={'room': {'name': '409'}}):
+            updated = self.teacher.put('/api/tests/1/presence', json={
+                'require_guard': True, 'enabled': False, 'room_id': 'room', 'version': version})
+        self.assertTrue(updated.json['config']['enabled'])
+
+    def test_matching_device_can_renew_after_reconnect_and_alert_on_next_departure(self):
+        creds = self.prepare_wifi_test()
+        lost = self.clock
+        self.clock += timedelta(seconds=20)
+        self.ingest(self.wifi_snapshot(lost))
+        self.clock += timedelta(seconds=1)
+        recovery = self.wifi_snapshot(lost, recovered_at=self.clock)
+        recovery['items'][0]['reason'] = 'connection_changed'
+        self.ingest(recovery)
+        self.assertTrue(self.beat(creds, 2).json['renew_binding'])
+        proof = dict(user_id=2, device_id='device', router_id='router', session_id='renewed',
+            method='browser_lan_proof', authorized=True, last_confirmed_at=utc_iso(self.clock), proved_at=utc_iso(self.clock))
+        with patch('guard_client.call', return_value=proof):
+            result = self.student.post('/api/attempts/1/presence/auto/finish', json={**creds, 'proof_id': 'proof2'})
+            self.assertEqual(result.json['state'], 'bound')
+        self.assertFalse(self.beat(creds, 3).json['renew_binding'])
+        lost = self.clock + timedelta(seconds=1)
+        self.clock = lost + timedelta(seconds=20)
+        again = self.wifi_snapshot(lost)
+        again['items'][0]['session_id'] = 'renewed'
+        again['events'][0].update(session_id='renewed', id='loss2')
+        self.ingest(again)
+        self.assertEqual(sum(e['notification_status'] == 'pending' for e in self.events()), 2)
 
     def test_finished_attempt_and_expired_proof_cannot_auto_bind(self):
         credentials=self.register()
