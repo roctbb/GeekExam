@@ -1,6 +1,7 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import Icon from "./Icon.vue";
+import ActionMenu from "./ActionMenu.vue";
 import { initializeTheme, useTheme } from "./useTheme";
 
 const { isDark, toggleTheme } = useTheme();
@@ -37,28 +38,61 @@ const dialog = ref(null),
   enrollment = ref(null),
   events = ref([]);
 const ownDevices = ref([]);
-const portalRouter = window.location.pathname.match(/^\/connect\/([a-zA-Z0-9-]{1,36})\/?$/)?.[1] || '';
-const networkLogin = ref(null), networkState = ref(null), connecting = ref(false), networkError = ref('');
+const journal = ref({ page: 1, page_size: 20, pages: 1, total: 0, until: "" });
+const journalGroup = ref("actions"),
+  journalSize = ref(20),
+  journalBusy = ref(false),
+  journalError = ref("");
+let journalRequest = 0;
+const journalRange = computed(() =>
+  journal.value.total
+    ? `${(journal.value.page - 1) * journal.value.page_size + 1}–${Math.min(journal.value.page * journal.value.page_size, journal.value.total)} из ${journal.value.total}`
+    : "Нет событий",
+);
+const portalRouter =
+  window.location.pathname.match(/^\/connect\/([a-zA-Z0-9-]{1,36})\/?$/)?.[1] ||
+  "";
+const networkLogin = ref(null),
+  networkState = ref(null),
+  connecting = ref(false),
+  networkError = ref("");
 async function connectNetwork() {
   if (!me.value || connecting.value) return;
   connecting.value = true;
-  networkError.value = '';
+  networkError.value = "";
   try {
-    const proof = await api('/api/v1/network-login/start', { method: 'POST', body: JSON.stringify({router_id: portalRouter}) });
+    const proof = await api("/api/v1/network-login/start", {
+      method: "POST",
+      body: JSON.stringify({ router_id: portalRouter }),
+    });
     networkLogin.value = proof.id;
     let response;
     // A newly joined device may precede the agent's next five-second cloud sample.
     for (let attempt = 0; attempt < 4; attempt++) {
-      response = await fetch(proof.url, {method:'POST', credentials:'omit', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({token:proof.token}), signal:AbortSignal.timeout(12000)});
-      if (response.ok || ![409,503].includes(response.status) || attempt === 3) break;
-      await new Promise(resolve => setTimeout(resolve,2000));
+      response = await fetch(proof.url, {
+        method: "POST",
+        credentials: "omit",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: proof.token }),
+        signal: AbortSignal.timeout(12000),
+      });
+      if (response.ok || ![409, 503].includes(response.status) || attempt === 3)
+        break;
+      await new Promise((resolve) => setTimeout(resolve, 2000));
     }
-    if (!response.ok) throw new Error('Не удалось подтвердить устройство. Проверьте подключение к ученическому Wi-Fi и повторите вход.');
+    if (!response.ok)
+      throw new Error(
+        "Не удалось подтвердить устройство. Проверьте подключение к ученическому Wi-Fi и повторите вход.",
+      );
     networkState.value = await api(`/api/v1/network-login/${proof.id}`);
   } catch (e) {
-    networkError.value = e instanceof TypeError ? 'Разрешите браузеру доступ к локальной сети и подключитесь к ученическому Wi-Fi.' : e.message;
-  } finally { connecting.value = false; }
+    networkError.value =
+      e instanceof TypeError
+        ? "Разрешите браузеру доступ к локальной сети и подключитесь к ученическому Wi-Fi."
+        : e.message;
+  } finally {
+    connecting.value = false;
+  }
 }
 let interval,
   reading = false,
@@ -120,7 +154,8 @@ const errorNames = {
   public_resource_ip_required: "Для сервиса нужен публичный IPv4-адрес.",
   sso_not_configured: "Вход через Coding Projects ещё не настроен.",
   network_login_not_configured: "Вход в эту сеть ещё не настроен.",
-  router_unavailable: "Нет связи с роутером. Повторите вход после восстановления связи.",
+  router_unavailable:
+    "Нет свежих данных от агента кабинета. Преподавателю нужно проверить, что компьютер с агентом включён и подключён к служебной сети.",
   student_network_required: "Подключитесь к ученическому Wi-Fi.",
   too_many_login_attempts: "Слишком много попыток входа. Подождите минуту.",
 };
@@ -145,6 +180,10 @@ function clearAccount() {
   networkState.value = null;
   users.value = [];
   events.value = [];
+  journalRequest++;
+  journal.value = { page: 1, page_size: 20, pages: 1, total: 0, until: "" };
+  journalBusy.value = false;
+  journalError.value = "";
   dialog.value = null;
   enrollment.value = null;
   error.value = "";
@@ -191,7 +230,9 @@ async function load() {
     }
     me.value = identity;
     if (portalRouter && networkLogin.value) {
-      networkState.value = await api(`/api/v1/network-login/${networkLogin.value}`);
+      networkState.value = await api(
+        `/api/v1/network-login/${networkLogin.value}`,
+      );
     }
     if (portalRouter) return;
     if (me.value.role === "student") {
@@ -218,11 +259,6 @@ async function load() {
       currentData.value = details;
       lastLoadedAt.value = clock.value = Date.now();
     } else currentData.value = null;
-    if (tab.value === "audit" && current.value) {
-      const journal = await api(`/api/v1/rooms/${roomId}/audit`);
-      if (generation === accountGeneration && roomId === selectedId.value)
-        events.value = journal.items;
-    }
   } catch (e) {
     if (generation === accountGeneration) error.value = e.message;
   } finally {
@@ -234,11 +270,80 @@ async function load() {
   }
 }
 async function changeRoom(id) {
+  journalRequest++;
+  events.value = [];
+  journal.value = {
+    page: 1,
+    page_size: journalSize.value,
+    pages: 1,
+    total: 0,
+    until: "",
+  };
+  journalError.value = "";
   selectedId.value = id;
   currentData.value = null;
   search.value = "";
   filter.value = "all";
   await load();
+  if (tab.value === "audit") await loadJournal(1, true);
+}
+async function changeJournalPage(page) {
+  await loadJournal(page);
+  if (!journalError.value) {
+    await nextTick();
+    document.querySelector(".audit-panel")?.scrollIntoView({ block: "start" });
+  }
+}
+async function loadJournal(page = 1, refresh = false) {
+  const roomId = selectedId.value;
+  if (!roomId || !me.value) return;
+  const requestId = ++journalRequest;
+  journalBusy.value = true;
+  journalError.value = "";
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(journalSize.value),
+    group: journalGroup.value,
+  });
+  if (!refresh && journal.value.until) params.set("until", journal.value.until);
+  try {
+    const result = await api(`/api/v1/rooms/${roomId}/audit?${params}`);
+    if (requestId !== journalRequest || roomId !== selectedId.value) return;
+    events.value = result.items;
+    journal.value = result;
+  } catch (e) {
+    if (requestId === journalRequest) journalError.value = e.message;
+  } finally {
+    if (requestId === journalRequest) journalBusy.value = false;
+  }
+}
+function deviceActions(device) {
+  return [
+    device.presence === "online" && {
+      key: "binding",
+      label: device.session_id
+        ? "Сменить пользователя"
+        : "Привязать пользователя",
+    },
+    device.user?.role === "student" && {
+      key: "access",
+      label: "Доступ ученика",
+    },
+    device.student_rule && {
+      key: "removeAccess",
+      label: "Снять правило ученика",
+    },
+    device.session_id && { key: "revoke", label: "Отозвать привязку" },
+    admin.value && { key: "override", label: "Исключение устройства" },
+    admin.value &&
+      device.override && { key: "removeOverride", label: "Удалить исключение" },
+  ].filter(Boolean);
+}
+function deviceAction(key, device) {
+  if (key === "removeAccess") return removeAccess(device);
+  if (key === "removeOverride") return removeOverride(device);
+  if (key === "revoke") return revoke(device);
+  return open(key, device);
 }
 async function act(fn, message) {
   busy.value = true;
@@ -249,6 +354,7 @@ async function act(fn, message) {
     notice.value = message;
     dialog.value = null;
     await load();
+    if (tab.value === "audit") await loadJournal(1, true);
     if (portalRouter) await connectNetwork();
   } catch (e) {
     error.value = e.message;
@@ -274,14 +380,19 @@ async function toggleRestriction() {
 async function open(kind, item) {
   error.value = "";
   enrollment.value = null;
-  if (kind === 'proof') {
+  if (kind === "proof") {
     try {
-      form.value = { router: item, ...await api(`/api/v1/routers/${item.id}/browser-proof`) };
+      form.value = {
+        router: item,
+        ...(await api(`/api/v1/routers/${item.id}/browser-proof`)),
+      };
       dialog.value = kind;
-    } catch (e) { error.value = e.message; }
+    } catch (e) {
+      error.value = e.message;
+    }
     return;
   }
-  if (kind === "members" || kind === "binding") {
+  if (kind === "teachers" || kind === "binding") {
     if (admin.value) {
       try {
         users.value = (await api("/api/v1/users")).items;
@@ -303,10 +414,10 @@ async function open(kind, item) {
       ? { name: "", description: "" }
       : kind === "router"
         ? { name: "", interface: "Bridge1", segment_name: "Учебная сеть" }
-        : kind === "members"
+        : kind === "teachers"
           ? {
               teacher_ids: [...current.value.teacher_ids],
-              student_ids: current.value.students.map((s) => s.id),
+              version: current.value.version,
             }
           : kind === "resources"
             ? {
@@ -333,86 +444,98 @@ async function save() {
   const f = form.value,
     room = current.value,
     kind = dialog.value;
-  await act(async () => {
-    if (kind === 'proof') {
-      await api(`/api/v1/routers/${f.router.id}/browser-proof`, {
-        method: 'PUT', body: JSON.stringify({origin:f.origin, enabled:f.enabled, version:f.version}),
-      });
-    } else if (kind === "room") {
-      const created = await api("/api/v1/rooms", {
-        method: "POST",
-        body: JSON.stringify({ name: f.name, description: f.description }),
-      });
-      selectedId.value = created.id;
-    } else if (kind === "router") {
-      await api("/api/v1/routers", {
-        method: "POST",
-        body: JSON.stringify({
-          name: f.name,
-          room_id: room.id,
-          segments: [
-            {
-              name: f.segment_name,
-              interface: f.interface,
-              purpose: "student",
-            },
-          ],
-        }),
-      });
-    } else if (kind === "members") {
-      await api(`/api/v1/rooms/${room.id}/members`, {
-        method: "PUT",
-        body: JSON.stringify({
-          version: room.version,
-          teacher_ids: f.teacher_ids,
-          student_ids: f.student_ids,
-        }),
-      });
-    } else if (kind === "resources") {
-      const resources = f.endpoints
-        .split("\n")
-        .filter((x) => x.trim())
-        .map((line) => {
-          const [ip, port] = line.trim().split(":");
-          return { ip, port: Number(port) };
+  await act(
+    async () => {
+      if (kind === "proof") {
+        await api(`/api/v1/routers/${f.router.id}/browser-proof`, {
+          method: "PUT",
+          body: JSON.stringify({
+            origin: f.origin,
+            enabled: f.enabled,
+            version: f.version,
+          }),
         });
-      await api(`/api/v1/rooms/${room.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ version: room.version, resources }),
-      });
-    } else if (kind === "binding") {
-      await api(`/api/v1/devices/${f.device.id}/binding`, {
-        method: "POST",
-        body: JSON.stringify({
-          user_id: Number(f.user_id),
-          epoch: f.device.epoch,
-          confirmed: f.confirmed,
-        }),
-      });
-    } else if (kind === "access") {
-      await api(`/api/v1/sessions/${f.device.session_id}/access`, {
-        method: "PUT",
-        body: JSON.stringify({
-          profile: f.profile,
-          seconds: Number(f.minutes) * 60,
-          reason: f.reason,
-        }),
-      });
-    } else if (kind === "override") {
-      await api(`/api/v1/devices/${f.device.id}/override`, {
-        method: "PUT",
-        body: JSON.stringify({
-          reason: f.reason,
-          seconds: Number(f.minutes) ? Number(f.minutes) * 60 : null,
-        }),
-      });
-    } else if (kind === "move") {
-      await api(`/api/v1/routers/${f.router.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ version: f.router.version, room_id: f.room_id }),
-      });
-    }
-  }, kind === 'proof' ? 'Настройка автопривязки сохранена. Проверьте доступность локального агента в сети кабинета.' : "Изменение сохранено. Ожидается подтверждение агента.");
+      } else if (kind === "room") {
+        const created = await api("/api/v1/rooms", {
+          method: "POST",
+          body: JSON.stringify({ name: f.name, description: f.description }),
+        });
+        selectedId.value = created.id;
+      } else if (kind === "router") {
+        await api("/api/v1/routers", {
+          method: "POST",
+          body: JSON.stringify({
+            name: f.name,
+            room_id: room.id,
+            segments: [
+              {
+                name: f.segment_name,
+                interface: f.interface,
+                purpose: "student",
+              },
+            ],
+          }),
+        });
+      } else if (kind === "teachers") {
+        await api(`/api/v1/rooms/${room.id}/teachers`, {
+          method: "PUT",
+          body: JSON.stringify({
+            version: f.version,
+            teacher_ids: f.teacher_ids,
+          }),
+        });
+      } else if (kind === "resources") {
+        const resources = f.endpoints
+          .split("\n")
+          .filter((x) => x.trim())
+          .map((line) => {
+            const [ip, port] = line.trim().split(":");
+            return { ip, port: Number(port) };
+          });
+        await api(`/api/v1/rooms/${room.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ version: room.version, resources }),
+        });
+      } else if (kind === "binding") {
+        await api(`/api/v1/devices/${f.device.id}/binding`, {
+          method: "POST",
+          body: JSON.stringify({
+            user_id: Number(f.user_id),
+            epoch: f.device.epoch,
+            confirmed: f.confirmed,
+          }),
+        });
+      } else if (kind === "access") {
+        await api(`/api/v1/sessions/${f.device.session_id}/access`, {
+          method: "PUT",
+          body: JSON.stringify({
+            profile: f.profile,
+            seconds: Number(f.minutes) * 60,
+            reason: f.reason,
+          }),
+        });
+      } else if (kind === "override") {
+        await api(`/api/v1/devices/${f.device.id}/override`, {
+          method: "PUT",
+          body: JSON.stringify({
+            reason: f.reason,
+            seconds: Number(f.minutes) ? Number(f.minutes) * 60 : null,
+          }),
+        });
+      } else if (kind === "move") {
+        await api(`/api/v1/routers/${f.router.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            version: f.router.version,
+            room_id: f.room_id,
+          }),
+        });
+      }
+    },
+    kind === "proof"
+      ? "Настройка автопривязки сохранена. Проверьте доступность локального агента в сети кабинета."
+      : "Изменение сохранено. Ожидается подтверждение агента.",
+  );
 }
 async function enroll(router) {
   busy.value = true;
@@ -457,7 +580,7 @@ async function logout() {
 }
 async function setTab(value) {
   tab.value = value;
-  if (value === "audit") await load();
+  if (value === "audit") await loadJournal(1, true);
 }
 onMounted(async () => {
   try {
@@ -514,8 +637,16 @@ onUnmounted(() => {
         </div>
       </div>
     </header>
-    <div :class="['workspace', { 'no-sidebar': !me || me.role === 'student' || portalRouter }]">
-      <aside v-if="me && me.role !== 'student' && !portalRouter" class="sidebar">
+    <div
+      :class="[
+        'workspace',
+        { 'no-sidebar': !me || me.role === 'student' || portalRouter },
+      ]"
+    >
+      <aside
+        v-if="me && me.role !== 'student' && !portalRouter"
+        class="sidebar"
+      >
         <div class="sidebar-label">
           Кабинеты <span class="nav-count">{{ rooms.length }}</span>
         </div>
@@ -547,7 +678,13 @@ onUnmounted(() => {
           <div class="login-symbol"><Icon name="router" /></div>
           <h1>Доступ к учебной сети</h1>
           <p>Кабинеты, подключения учеников и правила доступа к интернету.</p>
-          <a class="button primary" :href="portalRouter ? `/auth/login?network=${portalRouter}` : '/auth/login'"
+          <a
+            class="button primary"
+            :href="
+              portalRouter
+                ? `/auth/login?network=${portalRouter}`
+                : '/auth/login'
+            "
             ><Icon name="login" />Войти через Coding Projects</a
           >
           <p class="muted">Используется ваша учётная запись Coding Projects.</p>
@@ -559,12 +696,22 @@ onUnmounted(() => {
             <h2>Вход в сеть подтверждён</h2>
             <p>{{ profileNames[networkState.device.profile] }}</p>
             <p>{{ networkState.device.reason }}</p>
-            <p class="muted">{{ stateNames[networkState.router.status] }} · {{ presenceNames[networkState.device.presence] }}</p>
-            <a class="button primary" href="https://codingprojects.ru">Открыть Coding Projects</a>
+            <p class="muted">
+              {{ stateNames[networkState.router.status] }} ·
+              {{ presenceNames[networkState.device.presence] }}
+            </p>
+            <a class="button primary" href="https://codingprojects.ru"
+              >Открыть Coding Projects</a
+            >
           </template>
           <template v-else>
-            <p>Подключитесь к ученическому Wi-Fi и разрешите браузеру доступ к локальной сети.</p>
-            <button class="button primary" @click="connectNetwork">Подтвердить подключение</button>
+            <p>
+              Подключитесь к ученическому Wi-Fi и разрешите браузеру доступ к
+              локальной сети.
+            </p>
+            <button class="button primary" @click="connectNetwork">
+              Подтвердить подключение
+            </button>
           </template>
           <p v-if="networkError" role="alert">{{ networkError }}</p>
         </section>
@@ -718,8 +865,8 @@ onUnmounted(() => {
                 </button>
               </div>
               <div v-if="admin" class="toolbar-actions">
-                <button class="text-button" @click="open('members')">
-                  Участники</button
+                <button class="text-button" @click="open('teachers')">
+                  Доступ преподавателей</button
                 ><button class="text-button" @click="open('resources')">
                   Учебные сервисы
                 </button>
@@ -799,48 +946,12 @@ onUnmounted(() => {
                         ><small class="reason">{{ device.reason }}</small>
                       </td>
                       <td>
-                        <details class="actions">
-                          <summary aria-label="Действия с устройством">
-                            <Icon name="more" />
-                          </summary>
-                          <div class="action-menu">
-                            <button
-                              v-if="device.presence === 'online'"
-                              @click="open('binding', device)"
-                            >
-                              {{
-                                device.session_id
-                                  ? "Сменить пользователя"
-                                  : "Привязать пользователя"
-                              }}</button
-                            ><button
-                              v-if="device.user?.role === 'student'"
-                              @click="open('access', device)"
-                            >
-                              Доступ ученика</button
-                            ><button
-                              v-if="device.student_rule"
-                              @click="removeAccess(device)"
-                            >
-                              Снять правило ученика</button
-                            ><button
-                              v-if="device.session_id"
-                              @click="revoke(device)"
-                            >
-                              Отозвать привязку</button
-                            ><button
-                              v-if="admin"
-                              @click="open('override', device)"
-                            >
-                              Исключение устройства</button
-                            ><button
-                              v-if="admin && device.override"
-                              @click="removeOverride(device)"
-                            >
-                              Удалить исключение
-                            </button>
-                          </div>
-                        </details>
+                        <ActionMenu
+                          :items="deviceActions(device)"
+                          :disabled="busy"
+                          :label="`Действия: ${device.user?.name || device.name || device.ip || device.mac}`"
+                          @select="deviceAction($event, device)"
+                        />
                       </td>
                     </tr>
                     <tr v-if="!visible.length">
@@ -907,7 +1018,9 @@ onUnmounted(() => {
                   соединений не подтверждён.
                 </p>
                 <div v-if="admin" class="router-actions">
-                  <button class="button" @click="open('proof', router)">Автопривязка GeekExam</button>
+                  <button class="button" @click="open('proof', router)">
+                    Автопривязка GeekExam
+                  </button>
                   <button class="button" @click="enroll(router)">
                     Подключить агента</button
                   ><button class="text-button" @click="open('move', router)">
@@ -923,23 +1036,111 @@ onUnmounted(() => {
                 <Icon name="plus" />Добавить роутер в кабинет
               </button>
             </section>
-            <section v-if="tab === 'audit'" class="panel audit-list">
-              <article v-for="event in events" :key="event.id">
-                <span class="event-dot"></span>
+            <section
+              v-if="tab === 'audit'"
+              class="panel audit-panel"
+              :aria-busy="journalBusy"
+            >
+              <div class="journal-toolbar">
                 <div>
-                  <strong>{{ event.actor }}</strong>
-                  <p>{{ event.event }}</p>
-                  <small>{{ date(event.created_at) }}</small>
+                  <h2>Журнал кабинета</h2>
+                  <p>Входы в сеть, изменения доступа и применение правил.</p>
                 </div>
-                <span class="event-target mono">{{
-                  event.details.revision
-                    ? `Версия ${event.details.revision}`
-                    : event.details.profile
-                      ? profileNames[event.details.profile]
-                      : ""
-                }}</span>
-              </article>
-              <p v-if="!events.length" class="table-empty">Событий пока нет.</p>
+                <button
+                  class="button"
+                  :disabled="journalBusy"
+                  @click="loadJournal(1, true)"
+                >
+                  <Icon name="refresh" /> Обновить
+                </button>
+              </div>
+              <div class="journal-filters">
+                <label
+                  >События<select
+                    v-model="journalGroup"
+                    @change="loadJournal(1, true)"
+                  >
+                    <option value="actions">Изменения и входы</option>
+                    <option value="reports">Подтверждения роутеров</option>
+                    <option value="all">Все события</option>
+                  </select></label
+                >
+                <label
+                  >На странице<select
+                    v-model.number="journalSize"
+                    @change="loadJournal(1, true)"
+                  >
+                    <option :value="20">20</option>
+                    <option :value="50">50</option>
+                    <option :value="100">100</option>
+                  </select></label
+                >
+                <span class="journal-note"
+                  >Новые события появятся после обновления.</span
+                >
+              </div>
+              <p v-if="journalError" class="journal-error" role="alert">
+                {{ journalError }}
+              </p>
+              <div class="audit-list" :class="{ loading: journalBusy }">
+                <article v-for="event in events" :key="event.id">
+                  <span :class="['event-dot', event.tone]"></span>
+                  <div class="event-copy">
+                    <strong>{{ event.title }}</strong>
+                    <p v-if="event.description">{{ event.description }}</p>
+                    <div class="event-meta">
+                      <span>Инициатор: {{ event.actor }}</span
+                      ><time :datetime="event.created_at">{{
+                        new Date(event.created_at).toLocaleString("ru", {
+                          day: "2-digit",
+                          month: "short",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                        })
+                      }}</time>
+                    </div>
+                    <details class="event-technical">
+                      <summary>Технические сведения</summary>
+                      <code>{{ event.event }}</code
+                      ><code v-if="event.details.error">{{
+                        event.details.error
+                      }}</code>
+                    </details>
+                  </div>
+                </article>
+                <p v-if="!events.length" class="table-empty">
+                  {{
+                    journalBusy
+                      ? "Загрузка журнала…"
+                      : journalError
+                        ? "Журнал недоступен. Повторите загрузку."
+                        : "Событий этого типа пока нет."
+                  }}
+                </p>
+              </div>
+              <div class="journal-pagination">
+                <span aria-live="polite">{{ journalRange }}</span>
+                <nav aria-label="Страницы журнала">
+                  <button
+                    class="button"
+                    :disabled="journalBusy || journal.page <= 1"
+                    @click="changeJournalPage(journal.page - 1)"
+                  >
+                    Назад
+                  </button>
+                  <span
+                    >Страница {{ journal.page }} из {{ journal.pages }}</span
+                  >
+                  <button
+                    class="button"
+                    :disabled="journalBusy || journal.page >= journal.pages"
+                    @click="changeJournalPage(journal.page + 1)"
+                  >
+                    Далее
+                  </button>
+                </nav>
+              </div>
             </section>
             <div class="page-footnote">
               Guard показывает подтверждённое состояние каждого роутера. При
@@ -959,7 +1160,7 @@ onUnmounted(() => {
           {
             room: 'Новый кабинет',
             router: 'Новый роутер',
-            members: 'Участники кабинета',
+            teachers: 'Доступ преподавателей',
             resources: 'Учебные сервисы',
             binding: 'Привязка пользователя',
             access: 'Доступ ученика',
@@ -979,7 +1180,7 @@ onUnmounted(() => {
             {
               room: "Новый кабинет",
               router: "Новый роутер",
-              members: "Участники кабинета",
+              teachers: "Доступ преподавателей",
               resources: "Учебные сервисы",
               binding: "Привязка пользователя",
               access: "Доступ ученика",
@@ -994,10 +1195,28 @@ onUnmounted(() => {
         <form v-if="dialog !== 'enroll'" @submit.prevent="save">
           <template v-if="dialog === 'proof'">
             <p>{{ form.router.name }}</p>
-            <label>Адрес локального агента HTTPS<input v-model="form.origin" type="url" required maxlength="250" placeholder="https://lan-409.guard.geekclass.ru:18766"></label>
-            <label class="checkbox-label"><input v-model="form.enabled" type="checkbox">Разрешить автоматическое определение устройств</label>
-            <p class="muted">Сначала настройте локальный адрес агента, DNS и доверенный TLS-сертификат. Этот адрес должен быть доступен ученикам из сети кабинета. Пароль роутера и пароль Coding Projects в браузер не передаются.</p>
-            <p class="muted">Настройка применяется только к выбранному роутеру. Первый запрос может вызвать разрешение браузера на доступ к локальной сети.</p>
+            <label
+              >Адрес локального агента HTTPS<input
+                v-model="form.origin"
+                type="url"
+                required
+                maxlength="250"
+                placeholder="https://lan-409.guard.geekclass.ru:18766"
+            /></label>
+            <label class="checkbox-label"
+              ><input v-model="form.enabled" type="checkbox" />Разрешить
+              автоматическое определение устройств</label
+            >
+            <p class="muted">
+              Сначала настройте локальный адрес агента, DNS и доверенный
+              TLS-сертификат. Этот адрес должен быть доступен ученикам из сети
+              кабинета. Пароль роутера и пароль Coding Projects в браузер не
+              передаются.
+            </p>
+            <p class="muted">
+              Настройка применяется только к выбранному роутеру. Первый запрос
+              может вызвать разрешение браузера на доступ к локальной сети.
+            </p>
           </template>
           <template v-if="dialog === 'room'"
             ><label
@@ -1035,36 +1254,36 @@ onUnmounted(() => {
               роутера само по себе не меняет его настройки.
             </p></template
           >
-          <template v-if="dialog === 'members'"
-            ><label
-              >Преподаватели<select
-                v-model="form.teacher_ids"
-                multiple
-                size="4"
+          <template v-if="dialog === 'teachers'">
+            <p>
+              Выбранные преподаватели могут управлять доступом учеников кабинета
+              {{ current.name }}.
+            </p>
+            <div class="teacher-options">
+              <label
+                v-for="u in users.filter((u) => u.role === 'teacher')"
+                :key="u.id"
+                class="checkbox-label"
               >
-                <option
-                  v-for="u in users.filter((u) => u.role === 'teacher')"
-                  :key="u.id"
+                <input
+                  v-model="form.teacher_ids"
+                  type="checkbox"
                   :value="u.id"
-                >
-                  {{ u.name }}
-                </option>
-              </select></label
-            ><label
-              >Ученики<select v-model="form.student_ids" multiple size="6">
-                <option
-                  v-for="u in users.filter((u) => u.role === 'student')"
-                  :key="u.id"
-                  :value="u.id"
-                >
-                  {{ u.name }}
-                </option>
-              </select></label
-            >
+                />{{ u.name }}
+              </label>
+              <p v-if="!users.some((u) => u.role === 'teacher')" class="muted">
+                В Coding Projects пока нет пользователей с ролью преподавателя.
+              </p>
+            </div>
             <p class="muted">
-              Список пользователей приходит из Coding Projects. Роли здесь не
-              редактируются.
-            </p></template
+              Администраторы могут управлять всеми кабинетами. Роли назначаются
+              в Coding Projects.
+            </p>
+            <p class="muted">
+              Ученики появляются автоматически после входа в Wi-Fi. Тех, кто
+              сейчас подключён, смотрите на вкладке «Устройства».
+            </p>
+          </template>
           >
           <template v-if="dialog === 'resources'"
             ><label

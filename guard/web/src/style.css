@@ -720,31 +720,26 @@ td small {
   max-width: 230px;
   line-height: 1.45;
 }
-.actions {
-  position: relative;
-}
-.actions summary {
+.action-trigger {
   display: grid;
   place-items: center;
   width: 32px;
   height: 32px;
-  list-style: none;
+  border: 0;
+  background: transparent;
   border-radius: var(--ge-radius-control);
   color: var(--ge-muted);
   cursor: pointer;
 }
-.actions summary:hover {
+.action-trigger:hover,
+.action-trigger[aria-expanded="true"] {
   background: var(--ge-surface-subtle);
 }
-.actions summary::-webkit-details-marker {
-  display: none;
-}
 .action-menu {
-  position: absolute;
-  z-index: 5;
-  right: 0;
-  top: 32px;
-  width: 235px;
+  position: fixed;
+  z-index: 1100;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 5px;
   background: var(--ge-surface);
   border: 1px solid var(--ge-border);
@@ -763,6 +758,10 @@ td small {
   background: transparent;
 }
 .action-menu button:hover {
+  background: var(--ge-primary-soft);
+}
+.action-menu button:focus-visible {
+  outline-offset: -2px;
   background: var(--ge-primary-soft);
 }
 .table-footer {
@@ -853,6 +852,14 @@ td small {
 .audit-list article:last-child {
   border-bottom: 0;
 }
+.audit-list.loading {
+  opacity: 0.55;
+}
+.event-copy {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
 .event-dot {
   width: 7px;
   height: 7px;
@@ -864,6 +871,107 @@ td small {
 .audit-list strong {
   font-size: 0.875rem;
 }
+.event-dot.success {
+  background: var(--ge-success);
+}
+.event-dot.warning {
+  background: var(--ge-warning);
+}
+.event-dot.danger {
+  background: var(--ge-danger);
+}
+.journal-toolbar,
+.journal-filters,
+.journal-pagination {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+}
+.journal-toolbar {
+  justify-content: space-between;
+}
+.journal-toolbar p,
+.journal-note {
+  color: var(--ge-muted);
+  font-size: 0.75rem;
+  margin-top: 4px;
+}
+.journal-filters {
+  flex-wrap: wrap;
+  border-block: 1px solid var(--ge-border);
+  background: var(--ge-surface-subtle);
+}
+.journal-filters label {
+  font-size: 0.75rem;
+  color: var(--ge-secondary-text);
+}
+.journal-filters select {
+  display: block;
+  width: auto;
+  min-width: 90px;
+  font-size: 0.8125rem;
+}
+.journal-note {
+  margin-left: auto;
+}
+.event-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 8px;
+  color: var(--ge-muted);
+  font-size: 0.75rem;
+}
+.event-technical {
+  margin-top: 8px;
+  color: var(--ge-muted);
+  font-size: 0.6875rem;
+}
+.event-technical summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.event-technical code {
+  display: block;
+  margin-top: 6px;
+}
+.journal-pagination {
+  justify-content: space-between;
+  border-top: 1px solid var(--ge-border);
+  color: var(--ge-muted);
+  font-size: 0.75rem;
+  flex-wrap: wrap;
+}
+.journal-pagination nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.journal-pagination .button {
+  font-size: 0.75rem;
+}
+.journal-pagination button:disabled {
+  cursor: default;
+}
+.journal-error {
+  margin: 16px 20px;
+  color: var(--ge-danger);
+  font-size: 0.8125rem;
+}
+.teacher-options {
+  display: grid;
+  gap: 12px;
+  max-height: 300px;
+  overflow-y: auto;
+  margin: 20px 0;
+  padding: 16px;
+  border: 1px solid var(--ge-border);
+  border-radius: var(--ge-radius-control);
+}
+.teacher-options .checkbox-label {
+  margin: 0;
+}
 .audit-list p {
   color: var(--ge-secondary-text);
   font-size: 0.8125rem;
@@ -874,9 +982,6 @@ td small {
   color: var(--ge-muted);
   font-size: 0.75rem;
   margin-top: 4px;
-}
-.event-target {
-  margin-left: auto;
 }
 .page-footnote {
   color: var(--ge-muted);

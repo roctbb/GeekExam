@@ -3,7 +3,7 @@ import ipaddress
 import re
 import secrets
 
-from flask import Blueprint, current_app, g, jsonify
+from flask import Blueprint, current_app, g, jsonify, request
 
 from .models import (db, AuditEvent, Device, DeviceOverride, NetworkSession, Restriction,
                      Room, Router, Segment, StudentRoom, StudentRule, TeacherRoom, User)
@@ -55,8 +55,24 @@ def bump_room(room_id):
 
 def audit(room_id, event, target_id, details=None, actor=None):
     actor = actor or getattr(g, "user", None)
+    details = dict(details or {})
+    context = {}
+    if event.startswith(('session.', 'student.', 'device.')):
+        binding = db.session.get(NetworkSession, str(target_id)) if not event.startswith('device.') else None
+        device = db.session.get(Device, details.get('device_id') or (binding.device_id if binding else str(target_id)))
+        user = db.session.get(User, details.get('user_id') or (binding.user_id if binding else None)) if details.get('user_id') or binding else None
+        if device:
+            context.update(device=device.name or device.mac, ip=device.ip)
+        if user:
+            context['user'] = user.name
+    elif event.startswith(('router.', 'agent.', 'policy.')):
+        router = db.session.get(Router, str(target_id))
+        if router:
+            context['router'] = router.name
+    if context:
+        details['context'] = context
     db.session.add(AuditEvent(room_id=room_id, event=event, target_id=str(target_id),
-                              actor_id=actor.id if actor else None, details=details or {}))
+                              actor_id=actor.id if actor else None, details=details, created_at=now()))
 
 
 def expected_version(item, value, field="version"):
@@ -208,7 +224,8 @@ def room_update(room_id):
     # Force a revision even when the submitted value happens to be unchanged.
     room.version += 1
     bump_room(room.id)
-    audit(room.id, "room.policy_changed", room.id, {"manual_restriction": room.manual_restriction})
+    audit(room.id, "room.policy_changed", room.id, {"manual_restriction": room.manual_restriction,
+          "changes": sorted(set(data)-{"version"})})
     db.session.commit()
     return jsonify(room_state(room))
 
@@ -242,6 +259,27 @@ def room_members(room_id):
     room.version += 1
     bump_room(room.id)
     audit(room.id, "room.members_changed", room.id)
+    db.session.commit()
+    return jsonify(ok=True, version=room.version)
+
+
+@api.put("/rooms/<room_id>/teachers")
+@authenticated("admin")
+def room_teachers(room_id):
+    room = authorize_room(room_id)
+    data = body({"version", "teacher_ids"}, {"version", "teacher_ids"})
+    expected_version(room, data["version"])
+    if not isinstance(data["teacher_ids"], list) or len(data["teacher_ids"]) > 500:
+        raise ApiError("invalid_member_list")
+    ids = set(integer(item) for item in data["teacher_ids"])
+    if any(find(User, user_id).role != "teacher" for user_id in ids):
+        raise ApiError("member_role_mismatch")
+    db.session.execute(db.delete(TeacherRoom).where(TeacherRoom.room_id == room.id))
+    for user_id in ids:
+        db.session.add(TeacherRoom(room_id=room.id, user_id=user_id))
+    # Management permissions do not change pupils' automatic membership or Wi-Fi sessions.
+    room.version += 1
+    audit(room.id, "room.teachers_changed", room.id, {"teacher_ids": sorted(ids)})
     db.session.commit()
     return jsonify(ok=True, version=room.version)
 
@@ -418,10 +456,8 @@ def override_delete(device_id):
 @authenticated("teacher", "admin")
 def audit_list(room_id):
     authorize_room(room_id)
-    items = db.session.execute(db.select(AuditEvent).where(AuditEvent.room_id == room_id).order_by(AuditEvent.created_at.desc(), AuditEvent.id).limit(100)).scalars()
-    return jsonify(items=[{"id": item.id, "event": item.event, "target_id": item.target_id, "details": item.details,
-                           "actor": db.session.get(User, item.actor_id).name if item.actor_id else "Агент",
-                           "created_at": stamp(item.created_at)} for item in items])
+    from .audit_log import audit_page
+    return jsonify(audit_page(room_id, request.args))
 
 
 @api.get("/my-network")
