@@ -12,7 +12,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt && useradd --create-home --uid 10001 guard
 COPY guard_service/ ./guard_service/
 COPY --from=web /web/dist ./web/dist/
-RUN mkdir -p instance && chown guard:guard instance
+RUN chmod -R a+rX guard_service web/dist && mkdir -p instance && chown guard:guard instance
 USER guard
 EXPOSE 8088
 HEALTHCHECK --interval=30s --timeout=5s CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8088/healthz', timeout=3)"
