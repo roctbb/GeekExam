@@ -21,7 +21,9 @@ def original_lan_peer(rows, peer, peer_port, local, local_port, network):
             raise RouterError('unsupported_nat_table_schema')
         # Original and reply tuples must match this very TLS socket. No browser
         # parameters, forwarding headers, IP-only guesses or cached NAT entries.
-        expected = {'protocol':'tcp','dst':local,'dport':local_port,'src-out':local,
+        if row.get('protocol') not in {'tcp','TCP'}:
+            continue
+        expected = {'dst':local,'dport':local_port,'src-out':local,
                     'sport-out':local_port,'dst-out':peer,'dport-out':peer_port}
         if any(row.get(k) != v for k,v in expected.items()):
             continue

@@ -6,7 +6,7 @@ from guard_agent.captive import original_lan_peer
 
 
 def row(**changes):
-    return {'protocol':'tcp','src':'10.1.30.2','sport':50321,'dst':'192.168.2.62','dport':18766,
+    return {'protocol':'TCP','src':'10.1.30.2','sport':50321,'dst':'192.168.2.62','dport':18766,
             'src-out':'192.168.2.62','sport-out':18766,'dst-out':'192.168.2.1','dport-out':60123,**changes}
 
 
@@ -17,6 +17,7 @@ def resolve(rows):
 def test_router_nat_tuple_selects_one_real_client_among_shared_nat_clients():
     assert resolve([row(src='10.1.30.3',**{'dport-out':60124}),row()])=='10.1.30.2'
     assert resolve([row(),row()]) is None
+    assert resolve([row(protocol='tcp')])=='10.1.30.2'
 
 
 @pytest.mark.parametrize('change',[
