@@ -82,3 +82,15 @@ def test_failed_login_diagnostic_does_not_include_temporary_credentials():
     driver._exchange=Mock(return_value=(200,{},b'{"status":"error"}'))
     with pytest.raises(RouterError,match='^captive_login_command_error$'):
         driver.api('/rci/parse','interface Chilli0 chilli login 02:00:00:00:00:01 username secret-user password secret-password')
+
+
+def test_rejected_address_probe_cannot_reuse_old_ip_or_invalidate_other_stations():
+    driver,_=driver_with_session()
+    driver.probed={};driver.session_cache=(time.monotonic(),[])
+    driver.api=Mock(side_effect=RouterError('captive_login_command_error'))
+    assert driver.address_for('02:00:00:00:00:99','Bridge1') is None
+    driver.radius.forget_address.assert_called_once_with('02:00:00:00:00:99')
+    driver.radius.address.assert_not_called()
+    driver.api=Mock(side_effect=RouterError('network_error'));driver.probed={}
+    with pytest.raises(RouterError,match='network_error'):
+        driver.address_for('02:00:00:00:00:99','Bridge1')

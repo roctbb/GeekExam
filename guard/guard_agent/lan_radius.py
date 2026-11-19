@@ -60,6 +60,10 @@ class LanRadius:
             value = self.addresses.get(mac)
             return value[0] if value and time.monotonic()-value[1] < 8 else None
 
+    def forget_address(self, mac):
+        with self.lock:
+            self.addresses.pop(mac, None)
+
     def response(self, raw, source, accounting=False):
         from pyrad import packet
         if source != self.router_ip or not 20 <= len(raw) <= 4096:

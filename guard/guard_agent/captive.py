@@ -90,8 +90,16 @@ class CaptiveEnforcer(RciClient):
                 return row.get('ip')
         if time.monotonic()-self.probed.get(mac,0) >= 3:
             username,password = self.radius.grant(mac,None,None,probe=True)
-            self.api('/rci/parse','interface '+self.chilli+' chilli login '+mac+' username '+username+' password '+password)
             self.probed[mac] = time.monotonic()
+            try:
+                self.api('/rci/parse','interface '+self.chilli+' chilli login '+mac+' username '+username+' password '+password)
+            except RouterError as error:
+                if str(error) != 'captive_login_command_error':
+                    raise
+                # A station with no native DHCP identity stays unbound. It must
+                # not invalidate observations of every other pupil in the room.
+                self.radius.forget_address(mac)
+                return None
             # Bound wait for the local NAS response; never grant access to a probe.
             for _ in range(10):
                 if self.radius.address(mac):break
