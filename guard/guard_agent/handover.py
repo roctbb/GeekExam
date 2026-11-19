@@ -14,7 +14,8 @@ def identity_fingerprint(config):
     captive=config.get('captive_portal') or {}
     return fingerprint({'router_id':config['router_id'],'router_url':config['router_url'],
         'interfaces':sorted(config['interfaces']),'student_interfaces':sorted(config['student_interfaces']),
-        'bridge':captive.get('bridge'),'chilli':captive.get('interface'),'listen':captive.get('listen')})
+        'bridge':captive.get('bridge'),'chilli':captive.get('interface'),'listen':captive.get('listen'),
+        'control_tunnel':config.get('control_tunnel')})
 
 
 def consume_handover(path,config,observer):

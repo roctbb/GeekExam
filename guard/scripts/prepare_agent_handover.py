@@ -15,6 +15,9 @@ from guard_agent.transport import GuardClient,private_write
 
 
 def prepare(config,destination):
+    if config.get('control_tunnel') is not None:
+        from guard_agent.control_tunnel import ControlTunnel
+        ControlTunnel(config).verify()
     started=time.monotonic()
     cloud=GuardClient(config['guard_url'],config['token'],timeout=4)
     state=cloud.post('handover',{})

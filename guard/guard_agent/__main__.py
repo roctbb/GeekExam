@@ -39,6 +39,9 @@ def config_read(path, *, enrolled=True):
         raise RouterError("router_requires_private_lan_ipv4") from None
     if enrolled and (not config.get("router_id") or not config.get("token")):
         raise RouterError("enrollment_required")
+    if config.get('control_tunnel') is not None:
+        from .control_tunnel import ControlTunnel
+        ControlTunnel(config)
     return config
 
 
@@ -59,6 +62,11 @@ def password_source(config):
 
 
 def run(config, config_path, *, enforce=False, once=False, handover_path=None):
+    tunnel = None
+    if config.get('control_tunnel') is not None:
+        from .control_tunnel import ControlTunnel
+        tunnel = ControlTunnel(config)
+        tunnel.verify()
     captive = config.get('captive_portal')
     if captive and enforce:
         raise RouterError('choose_one_enforcement_driver')
@@ -72,6 +80,8 @@ def run(config, config_path, *, enforce=False, once=False, handover_path=None):
     observation_lock = threading.Lock()
     def observe():
         with observation_lock:
+            if tunnel:
+                tunnel.verify()
             return observer.read()
     driver = Enforcer(config["router_url"], config.get("username", "admin"), password, timeout=4,
                       router_id=config["router_id"], interfaces=config["student_interfaces"]) if enforce else None
@@ -107,7 +117,7 @@ def run(config, config_path, *, enforce=False, once=False, handover_path=None):
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    print("Guard agent: " + mode + "; пароли роутера на сервер не отправляются.", flush=True)
+    print("Guard agent: " + mode + "; пароль роутера не передаётся через API Guard.", flush=True)
     try:
         while not stopping:
             start = time.monotonic()
@@ -155,6 +165,8 @@ def run(config, config_path, *, enforce=False, once=False, handover_path=None):
                 local_now = server_time + timedelta(seconds=time.monotonic()-anchored_at)
                 fresh = source_error is None and time.monotonic()-anchored_at <= 20
                 try:
+                    if tunnel:
+                        tunnel.verify()
                     driver.apply(policy, observations, local_now, session_grants=fresh)
                     verified = confirmed and source_error is None
                 except (RouterError, OSError, ValueError, KeyError, TypeError) as exc:

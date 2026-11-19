@@ -1,0 +1,26 @@
+# GeekGuard control transport; keep the real file outside Git, mode 0600.
+# One interface and a unique control address per router.
+[Interface]
+Address = 10.77.4.1/32
+ListenPort = 51829
+PrivateKey = REPLACE_WITH_SERVER_PRIVATE_KEY
+Table = 10409
+# More-specific fail-closed routes remain if the interface goes away.
+PreUp = ip -4 route replace blackhole 10.77.4.2/32 metric 32760
+# Reply traffic from this private listener uses its own table. This preserves
+# existing Docker routes even if the classroom's LAN overlaps a Docker subnet.
+PostUp = ip -4 route replace 10.77.4.2/32 dev %i src 10.77.4.1 metric 10
+PostUp = ip -4 rule add priority 10409 from 10.77.4.1/32 table 10409
+PostUp = sysctl -q -w net.ipv4.conf.%i.rp_filter=2
+# Docker's forwarding chain runs before UFW; never forward classroom traffic.
+PostUp = iptables -I DOCKER-USER 1 -i %i -m comment --comment geekguard-409 -j DROP
+PostUp = iptables -I DOCKER-USER 1 -o %i -m comment --comment geekguard-409 -j DROP
+PostDown = iptables -D DOCKER-USER -i %i -m comment --comment geekguard-409 -j DROP
+PostDown = iptables -D DOCKER-USER -o %i -m comment --comment geekguard-409 -j DROP
+PostDown = ip -4 rule del priority 10409 from 10.77.4.1/32 table 10409
+
+[Peer]
+PublicKey = REPLACE_WITH_ROUTER_PUBLIC_KEY
+AllowedIPs = 10.77.4.2/32, 10.1.30.0/24, 192.168.2.0/24
+# No default route, forwarding or Internet NAT through the server.
+# Existing Docker, VPN and classroom subnets must be checked for overlaps.

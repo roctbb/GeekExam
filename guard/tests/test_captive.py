@@ -11,6 +11,7 @@ def driver_with_session():
     driver=CaptiveEnforcer.__new__(CaptiveEnforcer)
     driver.bridge,driver.chilli,driver.nas_id,driver.listen='Bridge1','Chilli0','room-409','192.168.2.62'
     driver.proof_port=18766
+    driver.guard_https=False
     driver.router_ip='192.168.2.1'
     driver.traffic_acl=Mock()
     driver.radius=Mock();driver.radius.grant.return_value=('temporary-user','temporary-password')

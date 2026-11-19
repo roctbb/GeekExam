@@ -7,8 +7,10 @@ from .policy import rule
 from .rci import RouterError
 
 
-def traffic_rules(resources, full_addresses, gateway, network, listen, router_ip, proof_port):
+def traffic_rules(resources, full_addresses, gateway, network, listen, router_ip, proof_port, *, guard_https=False):
     rules = [rule('permit','tcp',destination=listen,port=proof_port)]
+    if guard_https:
+        rules.append(rule('permit', 'tcp', destination=listen, port=443))
     for address in dict.fromkeys([gateway,router_ip]):
         rules.extend([rule('permit','udp',destination=address,port=53),
                       rule('permit','tcp',destination=address,port=53)])
@@ -52,7 +54,7 @@ class CaptiveACL(Enforcer):
             names.append(self.legacy_acl)
         return names
 
-    def apply_traffic(self,resources,full_addresses,listen,router_ip,proof_port):
+    def apply_traffic(self,resources,full_addresses,listen,router_ip,proof_port, *, guard_https=False):
         gateway,network,attached = self.inspect(self.interface)
-        rules = traffic_rules(resources,full_addresses,gateway,network,listen,router_ip,proof_port)
+        rules = traffic_rules(resources,full_addresses,gateway,network,listen,router_ip,proof_port,guard_https=guard_https)
         self.install(self.interface,rules,attached)

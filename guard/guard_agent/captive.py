@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 
 from .enforcer import local_ipv6_only
 from .captive_acl import CaptiveACL
+from .control_tunnel import nat_peers, private_address
 from .lan_radius import LanRadius
 from .policy import profile_for, parse_time
 from .rci import RciClient, RouterError, has_rci_error
@@ -58,12 +59,19 @@ class CaptiveEnforcer(RciClient):
             raise RouterError('invalid_radius_secret')
         self.nas_id, self.listen = settings['nas_id'], str(listen)
         self.router_ip = str(router_ip)
+        self.nat_peer_ips = nat_peers(settings.get('nat_peer_ips', [self.router_ip]), listen=self.listen)
+        radius_source = private_address(settings.get('radius_source_ip', self.router_ip))
+        if radius_source == self.listen:
+            raise RouterError('radius_source_cannot_be_agent')
         self.proof_port = settings['proof_port']
+        self.guard_https = settings.get('guard_https', False)
+        if type(self.guard_https) is not bool:
+            raise RouterError('invalid_guard_https_setting')
         if type(self.proof_port) is not int or not 1024 <= self.proof_port <= 65535:
             raise RouterError('invalid_captive_proof_port')
         self.traffic_acl = CaptiveACL(*args,router_id=router_id,interface=self.chilli,
                                      legacy_acl=settings.get('legacy_acl'),**kwargs)
-        self.radius = LanRadius(str(listen), str(router_ip), secret, self.nas_id,
+        self.radius = LanRadius(str(listen), radius_source, secret, self.nas_id,
                                 settings['auth_port'], settings['acct_port'])
         self.renewed = {}
         self.probed, self.session_cache = {}, (0, [])
@@ -103,7 +111,7 @@ class CaptiveEnforcer(RciClient):
         return result
 
     def resolve_peer(self, peer, peer_port, local, local_port):
-        if peer != urlsplit(self.base_url).hostname or local != self.listen or local_port != self.proof_port:
+        if peer not in self.nat_peer_ips or local != self.listen or local_port != self.proof_port:
             return None
         config = self.api('/rci/interface/'+self.chilli)['ip']['address']
         network = ipaddress.IPv4Network(config['address']+'/'+config['mask'],strict=False)
@@ -124,6 +132,8 @@ class CaptiveEnforcer(RciClient):
             raise RouterError('captive_local_config_changed')
         desired_garden = {'tcp:'+item['ip']+':'+str(item['port']) for item in policy['resources']}
         desired_garden.add('tcp:'+self.listen+':'+str(self.proof_port))
+        if self.guard_https:
+            desired_garden.add('tcp:'+self.listen+':443')
         garden = set(chilli.get('uamallowed',[]))
         for entry in garden:
             if not re.fullmatch(r'tcp:(?:[0-9]{1,3}\.){3}[0-9]{1,3}:[0-9]{1,5}',entry):
@@ -156,7 +166,8 @@ class CaptiveEnforcer(RciClient):
                     full_addresses.append(observed['ip'])
         # Restrict traffic BEFORE admitting any new native portal session. The
         # native authorization set does not change with the study-mode checkbox.
-        self.traffic_acl.apply_traffic(policy['resources'],full_addresses,self.listen,self.router_ip,self.proof_port)
+        self.traffic_acl.apply_traffic(policy['resources'],full_addresses,self.listen,self.router_ip,self.proof_port,
+                                       guard_https=self.guard_https)
         self.radius.retain({(x['mac'],x['ip'],x['epoch']) for x in wanted.values()})
         current = {x['mac'].lower():x for x in self.sessions()}
         for mac in current.keys()-wanted.keys():

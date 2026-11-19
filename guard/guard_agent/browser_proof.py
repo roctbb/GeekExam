@@ -10,6 +10,7 @@ import time
 from urllib.parse import urlsplit
 
 from .rci import RouterError
+from .control_tunnel import nat_peers
 
 
 def validated_settings(value):
@@ -43,8 +44,10 @@ def validated_settings(value):
             raise ValueError()
     except (KeyError,ValueError,TypeError,OSError):
         raise RouterError('invalid_browser_proof_settings') from None
+    peers = nat_peers(value.get('nat_peer_ips', []), listen=str(address))
     return {'listen':str(address),'port':port,'origin':value['origin'].rstrip('/'),'host':origin.netloc,
             'networks':networks,'allowed_origins':set(allowed),'cert':str(cert),'key':str(key),
+            'nat_peers': peers,
             'diagnostics':value.get('diagnostics') is True}
 
 
@@ -53,6 +56,8 @@ class LanProofServer:
         self.settings = validated_settings(settings)
         self.cloud, self.observe, self.boot_id = cloud, observe, boot_id
         self.resolve_peer = resolve_peer
+        if self.settings.get('nat_peers') and not resolve_peer:
+            raise RouterError('nat_peer_resolver_required')
         self.lock, self.recent = threading.Lock(), {}
         self.slots = threading.BoundedSemaphore(4)
         owner = self
@@ -123,7 +128,8 @@ class LanProofServer:
                     # client_address comes from the TCP socket. Forwarding headers
                     # and JSON parameters can never choose the LAN device.
                     peer = ipaddress.IPv4Address(self.client_address[0])
-                    if peer == ipaddress.IPv4Address(owner.settings['listen']) or not any(peer in net for net in owner.settings['networks']):
+                    is_nat_peer = str(peer) in owner.settings.get('nat_peers', set())
+                    if peer == ipaddress.IPv4Address(owner.settings['listen']) or (not is_nat_peer and not any(peer in net for net in owner.settings['networks'])):
                         diagnostic('lan_proof_peer_rejected')
                         self.reply(403);return
                 except (ValueError,TypeError,TimeoutError):
@@ -133,6 +139,9 @@ class LanProofServer:
                 try:
                     if owner.resolve_peer:
                         original = owner.resolve_peer(str(peer),self.client_address[1],owner.settings['listen'],owner.settings['port'])
+                        if is_nat_peer and not original:
+                            diagnostic('lan_nat_peer_unresolved')
+                            self.reply(403);return
                         if original:
                             peer = ipaddress.IPv4Address(original)
                             if peer == ipaddress.IPv4Address(owner.settings['listen']) or not any(peer in net for net in owner.settings['networks']):

@@ -1,0 +1,15 @@
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates iproute2 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 10002 guard-agent
+WORKDIR /app
+COPY agent-requirements.txt ./
+RUN pip install --no-cache-dir -r agent-requirements.txt
+COPY guard_agent/ ./guard_agent/
+COPY scripts/prepare_agent_handover.py ./scripts/prepare_agent_handover.py
+RUN chmod -R a+rX /app
+USER guard-agent
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.source="https://github.com/roctbb/GeekExam" org.opencontainers.image.revision=$VCS_REF
+CMD ["python", "-m", "guard_agent", "run", "--config", "/config/agent.json"]

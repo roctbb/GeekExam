@@ -73,3 +73,38 @@ def test_tls_request_uses_actual_socket_peer_and_rejects_browser_ip_claims(tls):
         assert calls[-1][1]['peer_ip']=='127.0.0.1'
         assert calls[-1][1]['mac']=='02:00:00:00:00:01'
     finally:server.stop()
+
+
+def test_tunnel_nat_peer_requires_an_exact_mapping_before_any_cloud_proof(tls):
+    key, cert = tls
+    calls, mapping = [], [None]
+    class Cloud:
+        def post(self, path, body):
+            calls.append((path, body)); return {'id': 'tunnel-proof'}
+    settings = {'listen': '127.0.0.1', 'port': 0, 'origin': 'https://127.0.0.1', 'host': '127.0.0.1',
+                'networks': [ipaddress.IPv4Network('10.1.30.0/24')], 'nat_peers': {'127.0.0.1'},
+                'allowed_origins': {'https://exam.geekclass.ru'}, 'cert': str(cert), 'key': str(key)}
+    with patch('guard_agent.browser_proof.validated_settings', return_value=settings):
+        server = LanProofServer({}, Cloud(), lambda: [{'ip': '10.1.30.14', 'mac': '02:00:00:00:00:14', 'epoch': 'current'}],
+                                'boot', resolve_peer=lambda *_: mapping[0])
+    port = server.server.server_address[1]
+    server.settings.update(listen='10.77.4.1', port=port, host=f'127.0.0.1:{port}', origin=f'https://127.0.0.1:{port}')
+    server.start()
+    opener = build_opener(ProxyHandler({}), HTTPSHandler(context=ssl.create_default_context(cafile=str(cert))))
+    def send():
+        request = Request(f'https://127.0.0.1:{port}/v1/network-login', data=json.dumps({'token': 'a'*43}).encode(),
+                          headers={'Content-Type': 'application/json', 'Origin': 'https://exam.geekclass.ru',
+                                   'X-Forwarded-For': '10.1.30.99'})
+        try:
+            with opener.open(request, timeout=5) as result: return result.status
+        except HTTPError as error: return error.code
+    try:
+        assert send() == 403 and calls == []
+        mapping[0] = '192.168.2.62'
+        assert send() == 403 and calls == []
+        mapping[0] = '10.1.30.14'
+        assert send() == 200
+        assert calls[-1][0] == 'network-login/complete'
+        assert calls[-1][1]['peer_ip'] == '10.1.30.14'
+        assert calls[-1][1]['mac'] == '02:00:00:00:00:14'
+    finally: server.stop()

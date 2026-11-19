@@ -1,0 +1,38 @@
+{
+  "guard_url": "https://guard.geekclass.ru",
+  "router_url": "http://10.77.4.2",
+  "router_id": "REPLACE_WITH_ROUTER_ID",
+  "token": "REPLACE_WITH_AGENT_TOKEN",
+  "username": "admin",
+  "password_file": "/config/router-password",
+  "interfaces": ["Bridge0", "Bridge1"],
+  "student_interfaces": ["Bridge1"],
+  "control_tunnel": {
+    "interface": "wg-guard",
+    "agent_ip": "10.77.4.1",
+    "router_ip": "10.77.4.2"
+  },
+  "browser_proof": {
+    "listen": "10.77.4.1",
+    "port": 18766,
+    "origin": "https://guard.geekclass.ru:18766",
+    "student_subnets": ["10.1.30.0/24"],
+    "nat_peer_ips": ["10.77.4.2"],
+    "allowed_origins": ["https://exam.geekclass.ru", "https://guard.geekclass.ru"],
+    "tls_cert_file": "/config/tls/fullchain.pem",
+    "tls_key_file": "/config/tls/privkey.pem",
+    "diagnostics": true
+  },
+  "captive_portal": {
+    "bridge": "Bridge1",
+    "interface": "Chilli0",
+    "listen": "10.77.4.1",
+    "nas_id": "geekguard-409",
+    "auth_port": 18120,
+    "acct_port": 18130,
+    "radius_secret_file": "/config/router-radius.secret",
+    "proof_port": 18766,
+    "nat_peer_ips": ["10.77.4.2"],
+    "guard_https": true
+  }
+}
