@@ -35,6 +35,7 @@ class Observer:
         self.client, self.interfaces, self.previous = client, set(interfaces), {}
         self.aliases = aliases or {}
         self.address_resolver = address_resolver
+        self.address_resolver_interfaces = set()
         self.last_complete = None
 
     def read(self):
@@ -57,7 +58,7 @@ class Observer:
             if interface not in self.interfaces:
                 continue
             address = host.get("ip")
-            if interface in self.interfaces and self.address_resolver and address in {None, '', '0.0.0.0'}:
+            if interface in self.interfaces and self.address_resolver and (interface in self.address_resolver_interfaces or address in {None, '', '0.0.0.0'}):
                 address = self.address_resolver(mac, interface)
             if address:
                 try:
