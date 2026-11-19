@@ -2,25 +2,32 @@
   <section class="ge-question-review mb-4" aria-labelledby="question-review-title">
     <div class="card">
       <div class="card-body">
-        <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap mb-3">
+        <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap mb-3">
           <div>
             <h5 id="question-review-title" class="mb-1">Как ответили на задания</h5>
-            <p v-if="hasGrades" class="small text-muted mb-0">Доли среди оценённых ответов. Пропуски показаны отдельно.</p>
+            <p v-if="hasWorks" class="small text-muted mb-0">
+              Доли от завершённых работ по заданию. Сверху — задания с большей долей ошибок и пропусков.
+            </p>
           </div>
-          <div v-if="hasGrades" class="d-flex gap-3 small text-nowrap">
+          <div v-if="hasWorks" class="d-flex flex-wrap gap-3 small">
             <span><span class="ge-ratio-swatch ge-ratio-swatch-correct" aria-hidden="true" />Верно</span>
-            <span><span class="ge-ratio-swatch ge-ratio-swatch-incorrect" aria-hidden="true" />С ошибкой</span>
+            <span title="Ответ, за который начислили меньше максимума"><span class="ge-ratio-swatch ge-ratio-swatch-incorrect" aria-hidden="true" />С ошибкой</span>
+            <span><span class="ge-ratio-swatch ge-ratio-swatch-skipped" aria-hidden="true" />Пропустили</span>
+            <span v-if="hasUngraded"><span class="ge-ratio-swatch ge-ratio-swatch-ungraded" aria-hidden="true" />Без оценки</span>
           </div>
         </div>
-        <p v-if="!hasGrades" class="text-muted mb-0">Пока нет оценённых ответов в проверенных работах.</p>
-        <div v-else role="group" aria-label="Задания по доле ответов с ошибкой">
+        <p v-if="!hasWorks" class="text-muted mb-0">Пока нет завершённых работ.</p>
+        <div v-else role="group" aria-label="Задания по доле ошибок и пропусков">
           <button v-for="group in rankedGroups" :key="group.order" type="button" class="ge-ratio-row"
-            :aria-pressed="selected?.order === group.order"
-            :aria-label="`${questionTitle(group)}. ${countsLabel(group)}. Доли ${ratioLabel(group)}`"
+            :aria-pressed="selected?.order === group.order" :aria-label="`${questionTitle(group)} — ${countsLabel(group)}`"
             aria-controls="question-review-variants" @click="selectedOrder = group.order">
             <span class="ge-ratio-title">{{ questionTitle(group) }}</span>
-            <AnswerRatioBar :correct="group.correct_count" :incorrect="group.incorrect_count" />
-            <span class="ge-ratio-value">{{ ratioLabel(group) }}</span>
+            <span class="ge-ratio-distribution">
+              <AnswerRatioBar :correct="group.correct_count" :incorrect="group.incorrect_count"
+                :skipped="group.skipped_count" :ungraded="group.ungraded_count" />
+              <span v-if="workCount(group)" class="ge-ratio-caption">{{ otherCounts(group) }}</span>
+            </span>
+            <span class="ge-ratio-value">{{ resultLabel(group) }}</span>
           </button>
           <div class="ge-ratio-axis" aria-hidden="true">
             <div class="ge-ratio-ticks">
@@ -56,7 +63,8 @@
               <h6 class="mb-0">{{ row.variant_title }}</h6>
               <span class="small text-muted">{{ workCountLabel(row) }}</span>
             </div>
-            <AnswerRatioBar :correct="row.correct_count" :incorrect="row.incorrect_count" />
+            <AnswerRatioBar :correct="row.correct_count" :incorrect="row.incorrect_count"
+              :skipped="row.skipped_count" :ungraded="row.ungraded_count" />
             <p class="small text-muted mt-1 mb-3">{{ countsLabel(row) }}</p>
 
             <template v-if="definitions[row.question_id]">
@@ -114,34 +122,48 @@ const loading = ref(false)
 const error = ref(false)
 const retry = ref(0)
 
-const answered = row => row.correct_count + row.incorrect_count
-const workCount = row => answered(row) + row.skipped_count
-const errorRate = row => answered(row) ? row.incorrect_count / answered(row) : -1
-const rankedGroups = computed(() => props.groups.map(group => ({
-  ...group,
-  correct_count: group.variants.reduce((sum, row) => sum + row.correct_count, 0),
-  incorrect_count: group.variants.reduce((sum, row) => sum + row.incorrect_count, 0),
-  skipped_count: group.variants.reduce((sum, row) => sum + row.skipped_count, 0),
-})).sort((a, b) => errorRate(b) - errorRate(a) || b.incorrect_count - a.incorrect_count || a.order - b.order))
-const hasGrades = computed(() => rankedGroups.value.some(group => workCount(group) > 0))
-const selected = computed(() => hasGrades.value
+const ratedCount = row => row.correct_count + row.incorrect_count + row.skipped_count
+const workCount = row => ratedCount(row) + row.ungraded_count
+const missed = row => row.incorrect_count + row.skipped_count
+const missedRate = row => ratedCount(row) ? missed(row) / workCount(row) : -1
+const outcomeKeys = ['correct_count', 'incorrect_count', 'skipped_count', 'ungraded_count']
+const rankedGroups = computed(() => props.groups.map(group => {
+  const totals = Object.fromEntries(outcomeKeys.map(key => [
+    key, group.variants.reduce((sum, row) => sum + row[key], 0),
+  ]))
+  return { ...group, ...totals }
+}).sort((a, b) => missedRate(b) - missedRate(a) || missed(b) - missed(a) || a.order - b.order))
+const hasWorks = computed(() => rankedGroups.value.some(group => workCount(group) > 0))
+const hasUngraded = computed(() => rankedGroups.value.some(group => group.ungraded_count > 0))
+const selected = computed(() => hasWorks.value
   ? rankedGroups.value.find(group => group.order === selectedOrder.value) ?? rankedGroups.value[0]
   : null)
 const questionTitle = group => numberedQuestionTitle(group.title, group.order)
-const countsLabel = row => `${row.correct_count} верно · ${row.incorrect_count} с ошибкой · Пропустили ${row.skipped_count}`
 const workPlural = new Intl.PluralRules('ru')
+
+function otherCounts(row) {
+  const counts = [`${row.incorrect_count} с ошибкой`, `Пропустили ${row.skipped_count}`]
+  if (row.ungraded_count) counts.push(`${row.ungraded_count} без оценки`)
+  return counts.join(' · ')
+}
+
+function countsLabel(row) {
+  if (!workCount(row)) return 'Нет завершённых работ'
+  return `${row.correct_count} верно · ${otherCounts(row)}`
+}
 
 function workCountLabel(row) {
   const count = workCount(row)
-  if (!count) return 'Нет оценок'
   const unit = { one: 'работа', few: 'работы', many: 'работ', other: 'работ' }[workPlural.select(count)]
   return `${count} ${unit}`
 }
 
-function ratioLabel(row) {
-  if (!answered(row)) return '—'
-  const incorrect = Math.round(errorRate(row) * 100)
-  return `${100 - incorrect}% / ${incorrect}%`
+function resultLabel(row) {
+  const total = workCount(row)
+  if (!total) return 'Нет работ'
+  if (!ratedCount(row)) return 'Без оценки'
+  const percent = Math.round(row.correct_count * 100 / total)
+  return `${row.correct_count} из ${total} верно · ${percent}%`
 }
 
 function questionCondition(question) {
@@ -179,15 +201,21 @@ watch([() => selected.value?.order, retry], async ([order], _, onCleanup) => {
 .ge-question-review {
   --answer-ratio-correct: #267e6b;
   --answer-ratio-incorrect: #c26236;
-  --ratio-columns: minmax(0, 1.1fr) minmax(0, 2.35fr) 6.3rem;
+  --answer-ratio-skipped: #a7b4c5;
+  --answer-ratio-ungraded: #7c6cb2;
+  --ratio-columns: minmax(0, 1.1fr) minmax(0, 2fr) 9.8rem;
 }
 [data-bs-theme="dark"] .ge-question-review {
   --answer-ratio-correct: #56bfa5;
   --answer-ratio-incorrect: #ed9a6d;
+  --answer-ratio-skipped: #7d8ea5;
+  --answer-ratio-ungraded: #a696de;
 }
 .ge-ratio-swatch { display: inline-block; width: .65rem; height: .65rem; border-radius: .15rem; margin-right: .35rem; }
 .ge-ratio-swatch-correct { background: var(--answer-ratio-correct); }
 .ge-ratio-swatch-incorrect { background: var(--answer-ratio-incorrect); }
+.ge-ratio-swatch-skipped { background: var(--answer-ratio-skipped); }
+.ge-ratio-swatch-ungraded { background: var(--answer-ratio-ungraded); }
 .ge-ratio-row,
 .ge-ratio-axis {
   display: grid;
@@ -198,8 +226,8 @@ watch([() => selected.value?.order, retry], async ([order], _, onCleanup) => {
 }
 .ge-ratio-row {
   width: 100%;
-  min-height: 2.65rem;
-  padding-block: .35rem;
+  min-height: 3.25rem;
+  padding-block: .5rem;
   border: 0;
   border-radius: var(--ge-radius-control);
   background: transparent;
@@ -211,6 +239,8 @@ watch([() => selected.value?.order, retry], async ([order], _, onCleanup) => {
 .ge-ratio-row[aria-pressed="true"] { box-shadow: inset 3px 0 var(--ge-primary); }
 .ge-ratio-row[aria-pressed="true"] .ge-ratio-title { color: var(--ge-primary); font-weight: 600; }
 .ge-ratio-row:focus-visible { outline: 2px solid var(--ge-primary); outline-offset: 2px; }
+.ge-ratio-distribution { display: grid; gap: .25rem; }
+.ge-ratio-caption { font-size: var(--ge-font-meta); color: var(--ge-muted); }
 .ge-ratio-value { justify-self: end; white-space: nowrap; font-size: var(--ge-font-meta); font-weight: 600; }
 .ge-ratio-value, .ge-ratio-axis { font-variant-numeric: tabular-nums; }
 .ge-ratio-axis {
@@ -225,7 +255,7 @@ watch([() => selected.value?.order, retry], async ([order], _, onCleanup) => {
 @media (max-width: 767px) {
   .ge-review-variants { grid-template-columns: minmax(0, 1fr); }
   .ge-ratio-row { grid-template-columns: minmax(0, 1fr) auto; gap: .25rem .5rem; min-height: 3rem; }
-  .ge-ratio-row .ge-answer-ratio-bar { grid-row: 2; grid-column: 1 / -1; --answer-ratio-height: .65rem; }
+  .ge-ratio-distribution { grid-row: 2; grid-column: 1 / -1; --answer-ratio-height: .65rem; }
   .ge-ratio-value { grid-row: 1; grid-column: 2; }
   .ge-ratio-axis { grid-template-columns: minmax(0, 1fr); }
   .ge-ratio-ticks { grid-column: 1; }

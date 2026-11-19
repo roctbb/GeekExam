@@ -47,8 +47,8 @@
       <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
         <h5 class="mb-0 ge-group-heading">{{ selectedTitle }} <span class="text-muted small">({{ visibleTests.length }})</span></h5>
         <div v-if="activeGroup" class="d-flex flex-wrap gap-2">
-          <button class="btn btn-outline-secondary btn-sm" :disabled="busy" @click="editGroup(activeGroup)"><AppIcon name="edit" />Переименовать группу</button>
-          <button class="btn btn-outline-danger btn-sm" :disabled="busy" @click="removeGroup"><AppIcon name="delete" />Удалить группу</button>
+          <IconAction icon="edit" label="Переименовать группу" :disabled="busy" @click="editGroup(activeGroup)" />
+          <IconAction icon="delete" label="Удалить группу" tone="danger" :disabled="busy" @click="removeGroup" />
         </div>
       </div>
       <div v-if="!visibleTests.length" class="card">
@@ -79,13 +79,11 @@
               <td class="text-center">{{ t.variant_count ?? '—' }}</td>
               <td class="text-center">{{ t.attempt_count ?? 0 }}</td>
               <td class="text-end">
-                <div class="ge-test-actions">
-                  <RouterLink :to="`/admin/tests/${t.id}`" class="btn btn-sm btn-outline-secondary"><AppIcon name="open" />Открыть</RouterLink>
-                  <RouterLink :to="`/admin/tests/${t.id}/edit`" class="btn btn-sm btn-outline-secondary"><AppIcon name="edit" />Редактировать</RouterLink>
-                  <RouterLink :to="`/admin/tests/${t.id}/results`" class="btn btn-sm btn-outline-primary"><AppIcon name="results" />Результаты</RouterLink>
-                  <button class="btn btn-sm btn-outline-danger" :disabled="busy" @click="removeTest(t)">
-                    <span v-if="deletingId === t.id" class="spinner-border spinner-border-sm me-1" /><AppIcon v-else name="delete" />Удалить
-                  </button>
+                <div class="ge-row-actions">
+                  <IconAction icon="open" label="Открыть" :to="`/admin/tests/${t.id}`" />
+                  <IconAction icon="edit" label="Редактировать" :to="`/admin/tests/${t.id}/edit`" />
+                  <IconAction icon="results" label="Результаты" tone="primary" :to="`/admin/tests/${t.id}/results`" />
+                  <IconAction icon="delete" label="Удалить" tone="danger" :disabled="busy" :busy="deletingId === t.id" @click="removeTest(t)" />
                 </div>
               </td>
             </tr>

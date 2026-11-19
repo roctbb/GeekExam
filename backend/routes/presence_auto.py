@@ -87,7 +87,7 @@ def finish(attempt_id):
             if not attempt_access_allowed(attempt):
                 abort(admission_error())
             admission = Admission.for_test(attempt.test, config, user_id)
-            record_binding(attempt, admission, candidate, data['proof_id'])
+            record_binding(attempt, admission, candidate, data['proof_id'], client_code=client_id[:8].upper())
             state.bound_client_id = client_id
             db.session.commit()
             remember_admission(attempt, admission, candidate)

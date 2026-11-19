@@ -5,13 +5,9 @@
     <div class="ge-page-header">
       <h4>{{ attempt.test_title }} — {{ attempt.user_name }}</h4>
       <div class="d-flex gap-2 align-items-center flex-wrap justify-content-end">
-        <button class="btn btn-sm btn-outline-secondary" :disabled="recheckingAll || !canRecheckAttempt" @click="recheckAll">
-          <span v-if="recheckingAll" class="spinner-border spinner-border-sm me-1" />
-          <AppIcon v-else name="retry" />
-          {{ recheckingAll ? 'Запускаю...' : 'Перепроверить всю работу' }}
-        </button>
+        <IconAction icon="retry" label="Перепроверить всю работу" :disabled="!canRecheckAttempt" :busy="recheckingAll" @click="recheckAll" />
         <span class="ge-score">{{ attempt.total_points ?? '—' }} / {{ attempt.max_points }}</span>
-        <button class="btn btn-sm btn-outline-danger" :disabled="deleting" @click="del"><AppIcon name="delete" />Удалить</button>
+        <IconAction icon="delete" label="Удалить" tone="danger" :busy="deleting" @click="del" />
       </div>
     </div>
 
@@ -84,9 +80,8 @@
               <span class="badge" :class="answer(q.id)?.check_state === 'checked' ? scoreStatus(answer(q.id)?.points, q.max_points).badge : 'bg-warning text-dark'">
                 {{ answer(q.id)?.check_state === 'checked' ? scoreStatus(answer(q.id)?.points, q.max_points).label + ' · ' + answer(q.id)?.points + ' / ' + q.max_points + ' б.' : 'Ошибка' }}
               </span>
-              <button v-if="attempt.finished_at && isAsyncCheck(q)" class="btn btn-sm btn-outline-secondary" @click="recheck(q.id, answer(q.id).id)">
-                <AppIcon name="retry" />Перепроверить
-              </button>
+              <IconAction v-if="attempt.finished_at && isAsyncCheck(q)" icon="retry" label="Перепроверить"
+                @click="recheck(q.id, answer(q.id).id)" />
             </div>
             <pre v-if="answer(q.id)?.check_comment" class="mb-0 p-2 bg-body-tertiary rounded small" style="white-space: pre-wrap; word-break: break-word">{{ answer(q.id).check_comment }}</pre>
           </div>

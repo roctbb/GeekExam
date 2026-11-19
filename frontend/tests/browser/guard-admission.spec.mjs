@@ -26,6 +26,50 @@ test('teacher can opt a single test into Guard from its access settings', async 
   await expect.poll(() => state.presence.config.require_guard).toBe(false)
 })
 
+test('results show a journal icon only for attempts with confirmed Guard admission', async ({ page }) => {
+  const state = await mockPlatform(page, 'teacher')
+  state.presence.config.require_guard = true
+  const finished_at = '2026-10-10T12:30:00Z'
+  await page.route('**/api/tests/1/attempts', route => route.fulfill({ json: [
+    { ...state.attempt, user_name: 'Обычная попытка', finished_at },
+    { ...state.attempt, id: 2, user_name: 'Строгая попытка', finished_at },
+  ] }))
+  await page.route('**/api/tests/1/presence', route => route.fulfill({ json: {
+    ...state.presence,
+    attempts: [
+      { attempt_id: 1, guard_admitted: false, exam: { state: 'finished' }, review_count: 0 },
+      { attempt_id: 2, guard_admitted: true, exam: { state: 'finished' }, guard: { bound: true }, review_count: 2 },
+    ],
+  } }))
+  await page.route('**/api/attempts/2/presence/events', route => route.fulfill({ json: { items: [] } }))
+
+  await page.goto('/admin/tests/1/results')
+  const ordinary = page.getByRole('row', { name: /Обычная попытка/ })
+  const strict = page.getByRole('row', { name: /Строгая попытка/ })
+  const journal = strict.getByRole('button', { name: 'Журнал связи · К проверке 2' })
+  await expect(journal).toBeVisible()
+  await expect(journal).toHaveText('2')
+  await expect(ordinary.getByRole('button', { name: /Журнал связи/ })).toHaveCount(0)
+  await expect(strict.getByRole('link', { name: 'Детали' })).toHaveAttribute('href', '/admin/attempts/2')
+  await expect(strict.getByRole('button', { name: 'Перепроверить', exact: true })).toHaveText('')
+  await expect(strict.getByRole('button', { name: 'Удалить', exact: true })).toHaveText('')
+  await journal.hover()
+  await expect(page.locator('.ge-icon-tooltip')).toHaveText('Журнал связи · К проверке 2')
+  await page.keyboard.press('Tab')
+  await journal.focus()
+  await expect(page.locator('.ge-icon-tooltip')).toHaveText('Журнал связи · К проверке 2')
+  await page.keyboard.press('Enter')
+  const dialog = page.getByRole('dialog', { name: 'Связь: Строгая попытка' })
+  await expect(dialog.getByText('Событий пока нет.')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Закрыть журнал' }).click()
+  await expect(dialog).not.toBeVisible()
+
+  state.presence.config.require_guard = false
+  await page.reload()
+  await expect(journal).toBeVisible()
+  await expect(ordinary.getByRole('button', { name: /Журнал связи/ })).toHaveCount(0)
+})
+
 test('Guard-protected join stays on the entry page until network authorization is verified', async ({ page }) => {
   await mockPlatform(page)
   let authorized = false

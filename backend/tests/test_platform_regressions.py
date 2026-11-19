@@ -240,10 +240,13 @@ class PlatformRegressionTests(unittest.TestCase):
             active = Attempt(test=test, variant=other_variant, user_id=5, max_points=10, is_checked=True)
             rechecking = Attempt(test=test, variant=other_variant, user_id=6, max_points=10,
                                  finished_at=finished_at)
-            db.session.add_all([User(id=i, name=f'Student {i}', role='student') for i in (4, 5, 6)])
+            missing = Attempt(test=test, variant=other_variant, user_id=7, max_points=10,
+                              finished_at=finished_at, is_checked=True)
+            db.session.add(missing)
+            db.session.add_all([User(id=i, name=f'Student {i}', role='student') for i in (4, 5, 6, 7)])
             db.session.add(unused_question)
             db.session.add_all([
-                Answer(attempt_id=1, question=second, points=0, check_state='error'),
+                Answer(attempt_id=1, question=second, value={'text': 'Needs grading'}, points=0, check_state='error'),
                 Answer(attempt=perfect, question=original, points=10, check_state='checked'),
                 Answer(attempt=perfect, question=second, points=10, check_state='checked'),
                 Answer(attempt=blank, question=other_question, points=0, check_state='checked'),
@@ -257,7 +260,7 @@ class PlatformRegressionTests(unittest.TestCase):
         self.assertEqual(self.client.get(url).status_code, 403)
         teacher = self.login(1, 'teacher')
         results = teacher.get(url).json
-        self.assertEqual(len(results['attempts']), 5)
+        self.assertEqual(len(results['attempts']), 6)
         self.assertEqual(results['question_summary'], [
             dict(question_id=other_question_id, order=0, title='Question', variant_title='Other variant',
                  below_max_count=1, graded_count=1),
@@ -270,8 +273,14 @@ class PlatformRegressionTests(unittest.TestCase):
         self.assertEqual([group['order'] for group in review], [0, 1])
         variants = review[0]['variants']
         self.assertEqual([row['question_id'] for row in variants], [1, other_question_id, unused_question_id])
-        self.assertEqual([(row['correct_count'], row['incorrect_count'], row['skipped_count']) for row in variants],
-                         [(1, 1, 0), (0, 0, 1), (0, 0, 0)])
+        keys = ('correct_count', 'incorrect_count', 'skipped_count', 'ungraded_count')
+        self.assertEqual([tuple(row[key] for key in keys) for row in variants],
+                         [(1, 1, 0, 0), (0, 0, 2, 1), (0, 0, 0, 0)])
+        self.assertEqual(tuple(review[1]['variants'][0][key] for key in keys), (1, 0, 0, 1))
+        summary_url = '/api/tests/1/question-review'
+        self.assertEqual(self.client.get(summary_url).status_code, 403)
+        self.assertEqual(teacher.get('/api/tests/2/question-review').status_code, 404)
+        self.assertEqual(teacher.get(summary_url).json, {'title': 'Test', 'question_review': review})
         details_url = '/api/tests/1/question-review/0'
         self.assertEqual(self.client.get(details_url).status_code, 403)
         self.assertEqual(teacher.get('/api/tests/2/question-review/0').status_code, 404)

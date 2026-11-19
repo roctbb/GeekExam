@@ -470,6 +470,13 @@ def test_results(test_id):
     return jsonify(attempts=_test_attempts(test_id), **question_results(test_id))
 
 
+@tests_bp.route('/api/tests/<int:test_id>/question-review', methods=['GET'])
+@teacher_required
+def test_question_review_summary(test_id):
+    test = db.get_or_404(Test, test_id)
+    return jsonify(title=test.title, question_review=question_results(test_id)['question_review'])
+
+
 @tests_bp.route('/api/tests/<int:test_id>/question-review/<int:order>', methods=['GET'])
 @teacher_required
 def test_question_review(test_id, order):

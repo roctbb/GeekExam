@@ -56,7 +56,7 @@
           <label class="col-md-5">Ожидаемый вывод
             <textarea class="form-control font-monospace" rows="3" :value="item.expected" @input="setTest(i, 'expected', $event.target.value)" />
           </label>
-          <div class="col-md-2 align-self-end"><button type="button" class="btn btn-sm btn-outline-danger" @click="set('check', 'tests', dockerTests.filter((_, index) => index !== i))">Удалить пример</button></div>
+          <div class="col-md-2 align-self-end"><IconAction icon="delete" label="Удалить пример" tone="danger" @click="set('check', 'tests', dockerTests.filter((_, index) => index !== i))" /></div>
           <label class="col-12 form-check ms-2"><input class="form-check-input" type="checkbox" :checked="!item.hidden" @change="setTest(i,'hidden',!$event.target.checked)" />Показать ученику ввод и ожидаемый вывод</label>
         </div>
         <button type="button" class="btn btn-sm btn-outline-secondary" @click="set('check', 'tests', [...dockerTests, { input: '', expected: '' }])">Добавить пример проверки</button>

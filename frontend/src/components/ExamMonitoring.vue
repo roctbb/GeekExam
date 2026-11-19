@@ -9,7 +9,7 @@
             <p class="small text-muted mb-0">Последнее обновление: {{ fmt(data?.server_time) || 'ожидается' }}</p>
           </template>
         </div>
-        <button v-if="!settingsOnly" class="btn btn-sm btn-outline-secondary" :aria-expanded="settings" @click="toggleSettings">Настройки связи</button>
+        <IconAction v-if="!settingsOnly" icon="settings" label="Настройки связи" :aria-expanded="settings" @click="toggleSettings" />
       </div>
       <div v-if="settingsOnly && error" class="alert alert-warning mt-3 mb-0" role="alert">
         {{ error }} <button type="button" class="btn btn-sm btn-outline-secondary" @click="emit('refresh')">Повторить</button>
@@ -44,16 +44,16 @@
     </div>
   </section>
 
-  <dialog v-if="!settingsOnly" ref="dialog" class="presence-dialog" @close="selected = null" @click="backdropClose">
+  <dialog v-if="!settingsOnly" ref="dialog" class="presence-dialog" aria-labelledby="presence-dialog-title" @close="selected = null" @click="backdropClose">
     <div v-if="selected" class="p-3 p-md-4">
       <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
-        <h5 class="mb-0">Связь: {{ selected.user_name }}</h5>
-        <button class="btn btn-sm btn-outline-secondary" @click="dialog.close()">Закрыть</button>
+        <h5 id="presence-dialog-title" class="mb-0">Связь: {{ selected.user_name }}</h5>
+        <IconAction icon="close" label="Закрыть журнал" @click="dialog.close()" />
       </div>
       <p class="small text-muted">События помогают проверить условия выполнения работы. Они сами по себе не доказывают списывание и не меняют оценку.</p>
       <div class="row g-3 mb-3">
         <div class="col-sm-6"><h6>GeekExam</h6><PresenceStatus :value="current?.exam" channel="exam" :stale="stale" :finished="!!selected.finished_at" :enabled="data?.config?.enabled !== false" /></div>
-        <div v-if="data?.config?.require_guard" class="col-sm-6"><h6>Сеть Guard</h6><PresenceStatus :value="current?.guard" channel="guard" :stale="stale" :finished="!!selected.finished_at" :enabled="data?.config?.enabled !== false" />
+        <div v-if="current?.guard_admitted" class="col-sm-6"><h6>Сеть Guard</h6><PresenceStatus :value="current?.guard" channel="guard" :stale="stale" :finished="!!selected.finished_at" :enabled="data?.config?.enabled !== false" />
           <p v-if="current?.guard?.bound" class="small text-muted mb-0">Проверка Guard: {{ fmt(current.guard.checked_at) || 'ожидается' }}. {{ reasons[current.guard.reason] || '' }}</p>
         </div>
       </div>
@@ -154,7 +154,18 @@ async function saveConfig() {
   catch (e) { actionError.value = e?.response?.data?.error || 'Не удалось сохранить настройки. Изменение ожидает повторной отправки.' }
   finally { saving.value = false }
 }
-async function open(attempt) { selected.value = attempt; events.value = []; candidates.value = []; candidateError.value = ''; sessionId.value = clientId.value = ''; confirmed.value = false; await nextTick(); dialog.value.showModal(); loadHistory() }
+async function open(attempt) {
+  if (!props.data?.attempts?.some(row => row.attempt_id === attempt.id && row.guard_admitted)) return
+  selected.value = attempt
+  events.value = []
+  candidates.value = []
+  candidateError.value = ''
+  sessionId.value = clientId.value = ''
+  confirmed.value = false
+  await nextTick()
+  dialog.value.showModal()
+  loadHistory()
+}
 function backdropClose(event) { if (event.target === dialog.value) { const box = dialog.value.getBoundingClientRect(); if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) dialog.value.close() } }
 async function loadHistory() {
   if (historyLoading.value || !selected.value) return

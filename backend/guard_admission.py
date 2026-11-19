@@ -8,7 +8,7 @@ from itsdangerous import BadData, URLSafeTimedSerializer
 import guard_client
 import presence_service as presence
 from models import db
-from presence_models import AttemptPresence, PresenceConfig
+from presence_models import AttemptPresence, PresenceConfig, PresenceEvent
 
 
 PROOF_LIFETIME = 45
@@ -137,26 +137,34 @@ def confirmed_evidence(candidate, user_id):
     return None
 
 
-def record_binding(attempt, admission, candidate, proof_id):
+def record_binding(attempt, admission, candidate, proof_id, *, client_code=None):
     evidence = confirmed_evidence(candidate, admission.user_id)
     if not evidence:
         abort(admission_error('Подтверждение Guard истекло. Войдите в тест ещё раз.'))
     observed, _ = evidence
     state = presence.ensure_attempt(attempt)
-    if state.guard_session_id == candidate['session_id']:
-        return
-    if state.guard_session_id:
-        presence.close_guard_gaps(attempt)
-    state.guard_session_id, state.guard_device_id, state.guard_router_id = (
-        candidate['session_id'], candidate['device_id'], candidate['router_id'],
-    )
     confirmed_at = presence.now()
-    state.bound_client_id, state.bound_by = None, admission.actor_id
-    state.binding_confirmed_at, state.binding_observed_at = confirmed_at, observed
-    state.guard_checked_at, state.guard_last_confirmed_at = confirmed_at, observed
-    state.guard_state, state.guard_reason, state.guard_since = 'online', None, None
+    if state.guard_session_id == candidate['session_id']:
+        already_recorded = db.session.scalar(db.select(db.exists().where(
+            PresenceEvent.attempt_id == attempt.id, presence.guard_admission_event(),
+        )))
+        if already_recorded:
+            return
+    else:
+        if state.guard_session_id:
+            presence.close_guard_gaps(attempt)
+        state.guard_session_id, state.guard_device_id, state.guard_router_id = (
+            candidate['session_id'], candidate['device_id'], candidate['router_id'],
+        )
+        state.bound_client_id, state.bound_by = None, admission.actor_id
+        state.binding_confirmed_at, state.binding_observed_at = confirmed_at, observed
+        state.guard_checked_at, state.guard_last_confirmed_at = confirmed_at, observed
+        state.guard_state, state.guard_reason, state.guard_since = 'online', None, None
+    details = {'method': 'browser_lan_proof', 'proof_id': proof_id}
+    if client_code:
+        details['client_code'] = client_code
     presence.event(attempt.test_id, 'admission:' + proof_id, 'binding_confirmed', confirmed_at, attempt_id=attempt.id,
-                   details={'method': 'browser_lan_proof', 'proof_id': proof_id})
+                   details=details)
 
 
 def remember_admission(attempt, admission, candidate):
