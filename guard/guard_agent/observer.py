@@ -31,8 +31,9 @@ def uptime(value):
 
 
 class Observer:
-    def __init__(self, client, interfaces):
+    def __init__(self, client, interfaces, aliases=None):
         self.client, self.interfaces, self.previous = client, set(interfaces), {}
+        self.aliases = aliases or {}
         self.last_complete = None
 
     def read(self):
@@ -51,6 +52,7 @@ class Observer:
             if not isinstance(interface, dict) or not isinstance(interface.get("id"), str):
                 raise RouterError("unsupported_hotspot_interface")
             interface = interface["id"]
+            interface = self.aliases.get(interface, interface)
             if interface not in self.interfaces:
                 continue
             address = host.get("ip")

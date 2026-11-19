@@ -59,6 +59,8 @@ def create_app(settings=None):
     app.register_blueprint(agents)
     from .browser_proof import proof_api
     app.register_blueprint(proof_api)
+    from .network_login import network_login
+    app.register_blueprint(network_login)
     from .exam_presence import exam_presence
     app.register_blueprint(exam_presence)
     from .cli import register
@@ -84,6 +86,15 @@ def create_app(settings=None):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        from flask import request
+        if request.path.startswith('/connect/'):
+            from .models import LocalProofEndpoint
+            from .browser_proof import https_origin
+            endpoint = db.session.get(LocalProofEndpoint, request.path.split('/')[-1])
+            if endpoint and endpoint.enabled:
+                origin = https_origin(endpoint.origin)
+                response.headers['Content-Security-Policy'] = response.headers['Content-Security-Policy'].replace("connect-src 'self';", "connect-src 'self' " + origin + ";")
+            response.headers['Cache-Control'] = 'no-store'
         if request_path_is_private():
             response.headers["Cache-Control"] = "no-store"
         return response
@@ -119,5 +130,12 @@ def create_app(settings=None):
             LocalProofEndpoint.__table__.create(connection,checkfirst=True)
             BrowserProof.__table__.create(connection,checkfirst=True)
         print('Browser proof schema ready (additive only)')
+
+    @app.cli.command('upgrade-network-login-schema')
+    def upgrade_network_login_schema():
+        from .models import NetworkLogin
+        with db.engine.begin() as connection:
+            NetworkLogin.__table__.create(connection, checkfirst=True)
+        print('Network login schema ready (additive only)')
 
     return app

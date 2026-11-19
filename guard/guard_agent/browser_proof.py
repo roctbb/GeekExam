@@ -93,7 +93,7 @@ class LanProofServer:
                     self.wfile.write(raw)
 
             def allowed(self):
-                return self.path == '/v1/browser-proof' and self.headers.get('Host') == owner.settings['host'] and self.headers.get('Origin') in owner.settings['allowed_origins']
+                return self.path in {'/v1/browser-proof', '/v1/network-login'} and self.headers.get('Host') == owner.settings['host'] and self.headers.get('Origin') in owner.settings['allowed_origins']
 
             def do_OPTIONS(self):
                 if not self.allowed() or self.headers.get('Access-Control-Request-Method') != 'POST':
@@ -131,7 +131,8 @@ class LanProofServer:
                     self.reply(429);return
                 try:
                     context = {'token':data['token'],'origin':self.headers['Origin'],'endpoint_origin':owner.settings['origin']}
-                    owner.cloud.post('proofs/inspect',context)
+                    operation = 'network-login' if self.path == '/v1/network-login' else 'proofs'
+                    owner.cloud.post(operation+'/inspect',context)
                     diagnostic('lan_proof_token_accepted')
                     started = time.monotonic()
                     observed = [item for item in owner.observe() if item.get('ip') == str(peer)]
@@ -139,7 +140,7 @@ class LanProofServer:
                         diagnostic('lan_proof_device_not_observed')
                         self.reply(409,{'error':'unique_current_device_required'});return
                     device = observed[0]
-                    result = owner.cloud.post('proofs/complete',{**context,'peer_ip':str(peer),
+                    result = owner.cloud.post(operation+'/complete',{**context,'peer_ip':str(peer),
                         'mac':device['mac'],'epoch':device['epoch'],'boot_id':owner.boot_id,
                         'source_age_seconds':int(time.monotonic()-started)})
                     diagnostic('lan_proof_completed')

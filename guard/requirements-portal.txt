@@ -1,0 +1,4 @@
+# Optional LAN agent dependency; server requirements are unchanged.
+pyrad==2.4
+netaddr==1.3.0
+six==1.17.0

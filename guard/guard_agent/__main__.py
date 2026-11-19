@@ -59,19 +59,27 @@ def password_source(config):
 
 
 def run(config, config_path, *, enforce=False, once=False):
+    captive = config.get('captive_portal')
+    if captive and enforce:
+        raise RouterError('choose_one_enforcement_driver')
     if enforce and (not config.get("experimental_ipv4_enforcement") or not config.get("student_interfaces")):
         raise RouterError("experimental_dedicated_student_segment_opt_in_required")
     cloud = GuardClient(config["guard_url"], config["token"])
     password = password_source(config)
     rci = RciClient(config["router_url"], config.get("username", "admin"), password, timeout=4)
-    observer = Observer(rci, config["interfaces"])
+    aliases = {captive['interface']:captive['bridge']} if captive else None
+    observer = Observer(rci, config["interfaces"], aliases=aliases)
     observation_lock = threading.Lock()
     def observe():
         with observation_lock:
             return observer.read()
     driver = Enforcer(config["router_url"], config.get("username", "admin"), password, timeout=4,
                       router_id=config["router_id"], interfaces=config["student_interfaces"]) if enforce else None
-    mode, boot, sequence = "enforce" if enforce else "observe", str(uuid.uuid4()), 0
+    if captive:
+        from .captive import CaptiveEnforcer
+        driver = CaptiveEnforcer(config['router_url'], config.get('username','admin'),password,timeout=4,
+                                 settings=captive, interfaces=config['student_interfaces'])
+    mode, boot, sequence = "enforce" if driver else "observe", str(uuid.uuid4()), 0
     proof_server, proof_retry_at = None, 0
     cache_path = Path(str(config_path) + ".policy.json")
     policy, anchored_at, server_time, last_report, last_message = None, None, None, None, None
@@ -81,7 +89,8 @@ def run(config, config_path, *, enforce=False, once=False):
         # A restart cannot resurrect any cached positive grant, including exceptions.
         for device in policy["devices"]:
             device["choices"] = [{"profile": "bootstrap", "when": "always", "expires_at": None, "requires_session": False}]
-        driver.apply(policy, [], datetime.now(timezone.utc), session_grants=False)
+        if not captive:
+            driver.apply(policy, [], datetime.now(timezone.utc), session_grants=False)
         policy = None
     stopping = False
 
@@ -165,7 +174,11 @@ def run(config, config_path, *, enforce=False, once=False):
         if proof_server:
             proof_server.stop()
         if driver:
-            print("Агент остановлен; установленные ACL оставлены. release снимает только ACL Guard.", flush=True)
+            if captive:
+                driver.stop()
+                print('Агент остановлен; сессии портала истекут по таймеру роутера.',flush=True)
+            else:
+                print("Агент остановлен; установленные ACL оставлены. release снимает только ACL Guard.", flush=True)
     return 0
 
 

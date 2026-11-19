@@ -37,6 +37,23 @@ const dialog = ref(null),
   enrollment = ref(null),
   events = ref([]);
 const ownDevices = ref([]);
+const portalRouter = window.location.pathname.match(/^\/connect\/([a-zA-Z0-9-]{1,36})\/?$/)?.[1] || '';
+const networkLogin = ref(null), networkState = ref(null), connecting = ref(false), networkError = ref('');
+async function connectNetwork() {
+  if (!me.value || connecting.value) return;
+  connecting.value = true;
+  networkError.value = '';
+  try {
+    const proof = await api('/api/v1/network-login/start', { method: 'POST', body: JSON.stringify({router_id: portalRouter}) });
+    networkLogin.value = proof.id;
+    const response = await fetch(proof.url, {method:'POST', credentials:'omit', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({token:proof.token}), signal:AbortSignal.timeout(15000)});
+    if (!response.ok) throw new Error('Не удалось подтвердить устройство. Проверьте подключение к ученическому Wi-Fi и повторите вход.');
+    networkState.value = await api(`/api/v1/network-login/${proof.id}`);
+  } catch (e) {
+    networkError.value = e instanceof TypeError ? 'Разрешите браузеру доступ к локальной сети и подключитесь к ученическому Wi-Fi.' : e.message;
+  } finally { connecting.value = false; }
+}
 let interval,
   reading = false,
   reloadQueued = false,
@@ -96,6 +113,10 @@ const errorNames = {
   member_role_mismatch: "Роль выбранного пользователя не соответствует списку.",
   public_resource_ip_required: "Для сервиса нужен публичный IPv4-адрес.",
   sso_not_configured: "Вход через Coding Projects ещё не настроен.",
+  network_login_not_configured: "Вход в эту сеть ещё не настроен.",
+  router_unavailable: "Нет связи с роутером. Повторите вход после восстановления связи.",
+  student_network_required: "Подключитесь к ученическому Wi-Fi.",
+  too_many_login_attempts: "Слишком много попыток входа. Подождите минуту.",
 };
 function date(value) {
   return value
@@ -114,6 +135,8 @@ function clearAccount() {
   rooms.value = [];
   selectedId.value = "";
   ownDevices.value = [];
+  networkLogin.value = null;
+  networkState.value = null;
   users.value = [];
   events.value = [];
   dialog.value = null;
@@ -161,6 +184,10 @@ async function load() {
       return;
     }
     me.value = identity;
+    if (portalRouter && networkLogin.value) {
+      networkState.value = await api(`/api/v1/network-login/${networkLogin.value}`);
+    }
+    if (portalRouter) return;
     if (me.value.role === "student") {
       const own = await api("/api/v1/my-network");
       if (generation === accountGeneration) {
@@ -216,6 +243,7 @@ async function act(fn, message) {
     notice.value = message;
     dialog.value = null;
     await load();
+    if (portalRouter) await connectNetwork();
   } catch (e) {
     error.value = e.message;
     await load();
@@ -480,8 +508,8 @@ onUnmounted(() => {
         </div>
       </div>
     </header>
-    <div :class="['workspace', { 'no-sidebar': !me || me.role === 'student' }]">
-      <aside v-if="me && me.role !== 'student'" class="sidebar">
+    <div :class="['workspace', { 'no-sidebar': !me || me.role === 'student' || portalRouter }]">
+      <aside v-if="me && me.role !== 'student' && !portalRouter" class="sidebar">
         <div class="sidebar-label">
           Кабинеты <span class="nav-count">{{ rooms.length }}</span>
         </div>
@@ -513,10 +541,26 @@ onUnmounted(() => {
           <div class="login-symbol"><Icon name="router" /></div>
           <h1>Доступ к учебной сети</h1>
           <p>Кабинеты, подключения учеников и правила доступа к интернету.</p>
-          <a class="button primary" href="/auth/login"
+          <a class="button primary" :href="portalRouter ? `/auth/login?network=${portalRouter}` : '/auth/login'"
             ><Icon name="login" />Войти через Coding Projects</a
           >
           <p class="muted">Используется ваша учётная запись Coding Projects.</p>
+        </section>
+        <section v-else-if="portalRouter" class="empty-state panel">
+          <h1>Вход в учебный Wi-Fi</h1>
+          <p v-if="connecting">Подтверждаем устройство в локальной сети…</p>
+          <template v-else-if="networkState?.state === 'authenticated'">
+            <h2>Вход в сеть подтверждён</h2>
+            <p>{{ profileNames[networkState.device.profile] }}</p>
+            <p>{{ networkState.device.reason }}</p>
+            <p class="muted">{{ stateNames[networkState.router.status] }} · {{ presenceNames[networkState.device.presence] }}</p>
+            <a class="button primary" href="https://codingprojects.ru">Открыть Coding Projects</a>
+          </template>
+          <template v-else>
+            <p>Подключитесь к ученическому Wi-Fi и разрешите браузеру доступ к локальной сети.</p>
+            <button class="button primary" @click="connectNetwork">Подтвердить подключение</button>
+          </template>
+          <p v-if="networkError" role="alert">{{ networkError }}</p>
         </section>
         <section v-else-if="me.role === 'student'" class="empty-state panel">
           <h1>Мой доступ</h1>

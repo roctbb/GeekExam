@@ -116,6 +116,13 @@ def login():
         raise ApiError("sso_not_configured", 503)
     session["login_state"] = secrets.token_urlsafe(32)
     session["login_started"] = epoch_seconds()
+    network = request.args.get('network', '')
+    if network:
+        from .models import LocalProofEndpoint
+        endpoint = db.session.get(LocalProofEndpoint, network)
+        if not endpoint or not endpoint.enabled:
+            raise ApiError('network_login_not_configured', 409)
+    session['login_next'] = '/connect/' + network if network else '/'
     callback = current_app.config["PUBLIC_URL"].rstrip("/") + "/auth/callback?" + urlencode({"state": session["login_state"]})
     return redirect(current_app.config["CP_URL"].rstrip("/") + "/insider/jwt?" + urlencode({"redirect_url": callback}))
 
@@ -148,9 +155,10 @@ def callback():
     user = update_identity(data)
     db.session.add(LoginTicket(digest=token_digest, expires_at=now() + timedelta(seconds=65)))
     db.session.commit()
+    destination = session.get('login_next', '/')
     session.clear()
     session.update(user_id=user.id, csrf=secrets.token_urlsafe(32))
-    return redirect("/")
+    return redirect(destination)
 
 
 @auth.get("/api/me")

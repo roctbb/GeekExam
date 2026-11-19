@@ -157,6 +157,18 @@ class DeviceOverride(db.Model):
     created_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
 
 
+class NetworkLogin(db.Model):
+    """One-use LAN challenge owned by an authenticated Coding Projects user."""
+    id = db.Column(db.String(36), primary_key=True, default=uid)
+    token_digest = db.Column(db.String(64), nullable=False, unique=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    router_id = db.Column(db.String(36), db.ForeignKey("router.id"), nullable=False)
+    endpoint_origin = db.Column(db.String(250), nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+    completed_at = db.Column(db.DateTime)
+    session_id = db.Column(db.String(36), db.ForeignKey("network_session.id"))
+
+
 class Restriction(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=uid)
     room_id = db.Column(db.String(36), db.ForeignKey("room.id"), nullable=False, index=True)
