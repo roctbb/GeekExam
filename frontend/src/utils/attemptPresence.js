@@ -35,7 +35,7 @@ export function createAttemptPresence({ attemptId, register, heartbeat, storage,
       pending = null
       lastAck = now()
       publish({ state: 'online', lastAck })
-      onReady({...credentials})
+      onReady({...credentials}, result.renew_binding === true)
     } catch (error) {
       if (stopped) return
       if (error?.response?.status === 410) { publish({ state: 'finished' }); stopped = true; return }

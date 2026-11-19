@@ -33,6 +33,17 @@ def collect():
             pass
 
 
+@celery.task(name='celery_tasks.presence.notify', expires=10, ignore_result=True)
+def notify():
+    from manage import app
+    from wifi_alerts import deliver_next
+    from presence_service import now
+    with app.app_context():
+        for _ in range(10):
+            if not deliver_next(now()):
+                break
+
+
 @celery.task(name='celery_tasks.presence.prune', ignore_result=True)
 def prune():
     from manage import app

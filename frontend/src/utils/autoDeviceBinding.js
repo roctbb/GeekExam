@@ -60,7 +60,14 @@ export function createAutoDeviceBinding({ start, finish, fetchLocal = fetch, onC
     finally { busy = false; if (!stopped && !bound) retry = schedule(run,++failures <= 3 && round ? 5000 : 60000) }
   }
   return {
-    begin(value) { if (stopped || credentials) return; credentials = {...value}; run() },
+    begin(value, renew = false) {
+      if (stopped) return
+      if (renew && bound) {
+        bound = false; round = null; failures = 0
+      } else if (credentials) return
+      credentials = {...value}
+      run()
+    },
     retry() { if (!stopped && !bound) { cancel(retry); run() } },
     stop() { stopped = true; cancel(retry); for (const control of controllers) control.abort() },
   }

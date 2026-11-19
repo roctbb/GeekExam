@@ -14,6 +14,7 @@ REDIS_URL = os.getenv('REDIS_URL', CELERY_BROKER)
 GEEKCLASS_HOST = os.getenv('GEEKCLASS_HOST', 'https://codingprojects.ru')
 JWT_SECRET = os.getenv('JWT_SECRET')
 COURSE_PLANNER_SECRET = os.getenv('COURSE_PLANNER_SECRET')
+GEEKEXAM_ALERT_SECRET = os.getenv('GEEKEXAM_ALERT_SECRET', '')
 AUTH_URL = GEEKCLASS_HOST + '/insider/jwt?redirect_url='
 
 CALLBACK_BASE_URL = os.getenv('CALLBACK_BASE_URL', 'http://localhost:8085')

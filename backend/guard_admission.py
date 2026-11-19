@@ -137,7 +137,7 @@ def confirmed_evidence(candidate, user_id):
     return None
 
 
-def record_binding(attempt, admission, candidate, proof_id):
+def record_binding(attempt, admission, candidate, proof_id, *, client_code=None):
     evidence = confirmed_evidence(candidate, admission.user_id)
     if not evidence:
         abort(admission_error('Подтверждение Guard истекло. Войдите в тест ещё раз.'))
@@ -160,8 +160,11 @@ def record_binding(attempt, admission, candidate, proof_id):
         state.binding_confirmed_at, state.binding_observed_at = confirmed_at, observed
         state.guard_checked_at, state.guard_last_confirmed_at = confirmed_at, observed
         state.guard_state, state.guard_reason, state.guard_since = 'online', None, None
+    details = {'method': 'browser_lan_proof', 'proof_id': proof_id}
+    if client_code:
+        details['client_code'] = client_code
     presence.event(attempt.test_id, 'admission:' + proof_id, 'binding_confirmed', confirmed_at, attempt_id=attempt.id,
-                   details={'method': 'browser_lan_proof', 'proof_id': proof_id})
+                   details=details)
 
 
 def remember_admission(attempt, admission, candidate):

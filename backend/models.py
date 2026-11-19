@@ -36,7 +36,8 @@ class Test(db.Model):
 
     group = db.relationship('TestGroup', back_populates='tests')
     variants = db.relationship('Variant', backref='test', cascade='all, delete-orphan', order_by='Variant.order')
-    creator = db.relationship('User', backref='tests')
+    activated_by = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'))
+    creator = db.relationship('User', foreign_keys=[created_by], backref='tests')
 
 
 class Variant(db.Model):

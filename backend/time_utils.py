@@ -1,4 +1,13 @@
-from datetime import timezone
+from datetime import datetime, timezone
+
+
+def parse_utc(value):
+    if not value:
+        return None
+    parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if parsed.tzinfo is None:
+        return parsed
+    return parsed.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def utc_iso(value):

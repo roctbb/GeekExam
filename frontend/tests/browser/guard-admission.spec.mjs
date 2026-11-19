@@ -10,6 +10,9 @@ test('teacher can opt a single test into Guard from its access settings', async 
   expect(state.roomReads).toBe(0)
 
   await requireGuard.check()
+  const monitoring = access.getByRole('checkbox', { name: 'Учитывать связь во время теста' })
+  await expect(monitoring).toBeChecked()
+  await expect(monitoring).toBeDisabled()
   const room = access.getByRole('combobox', { name: 'Кабинет Guard' })
   const save = access.getByRole('button', { name: 'Сохранить', exact: true })
   await expect(save).toBeDisabled()

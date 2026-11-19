@@ -21,7 +21,7 @@
         {{ event.kind === 'mass_disconnect' ? 'Проверьте Wi-Fi кабинета.' : 'Присутствие устройств сейчас не подтверждено.' }}
       </div>
       <form v-if="settings && data?.config" class="border-top mt-3 pt-3" @submit.prevent="saveConfig">
-        <div class="form-check mb-2"><input id="monitor-enabled" v-model="enabled" type="checkbox" class="form-check-input" :disabled="saving" @change="dirty = true"><label class="form-check-label" for="monitor-enabled">Учитывать связь во время теста</label></div>
+        <div class="form-check mb-2"><input id="monitor-enabled" v-model="enabled" type="checkbox" class="form-check-input" :disabled="saving || requireGuard" @change="dirty = true"><label class="form-check-label" for="monitor-enabled">Учитывать связь во время теста</label></div>
         <div class="form-check mb-2">
           <input id="monitor-require-guard" v-model="requireGuard" type="checkbox" class="form-check-input" :disabled="saving" @change="changeGuardRequirement">
           <label class="form-check-label" for="monitor-require-guard">Требовать авторизацию устройства в Guard</label>
@@ -33,7 +33,7 @@
             <option v-if="roomId && !rooms.some(r => r.id === roomId)" :value="roomId">{{ data.config.room_name || 'Текущий кабинет' }}</option>
             <option v-for="room in rooms" :key="room.id" :value="room.id">{{ room.name }}</option>
           </select>
-          <p class="small text-muted">Ученик сможет начать тест после проверки авторизации этого устройства в сети кабинета.</p>
+          <p class="small text-muted">Ученик сможет начать тест после проверки авторизации этого устройства в сети кабинета. Если Guard подтвердит отключение на 20 секунд, преподаватель, запустивший тест, получит сообщение в привязанный Telegram.</p>
           <p v-if="!data.guard_configured" class="small text-muted">Подключение к Guard ещё не настроено.</p>
         </template>
         <p v-if="dirty" class="small text-warning" role="status">Ожидает отправки: 1 изменение настроек. {{ saving ? 'Сохраняется…' : 'Нажмите «Сохранить».' }}</p>
@@ -82,7 +82,8 @@
           <dt>Событие с</dt><dd>{{ fmt(event.started_at) }}</dd>
           <template v-if="event.last_confirmed_at"><dt>До обрыва подтверждено</dt><dd>{{ fmt(event.last_confirmed_at) }}</dd></template>
           <dt>Обнаружено</dt><dd>{{ fmt(event.detected_at) }}</dd>
-          <template v-if="event.exam_continued_at"><dt>GeekExam ответил после обрыва</dt><dd>{{ fmt(event.exam_continued_at) }}</dd></template>
+          <template v-if="event.notification_status"><dt>Telegram преподавателя</dt><dd>{{ notificationLabels[event.notification_status] }}</dd></template>
+          <template v-if="event.exam_continued_at"><dt>{{ evidenceLabels[event.details?.evidence_client_scope] || evidenceLabels.unknown }}</dt><dd>{{ fmt(event.exam_continued_at) }}</dd></template>
           <template v-if="event.ended_at"><dt>{{ event.details?.closed_by ? 'Наблюдение завершено' : 'Восстановление' }}</dt><dd>{{ fmt(event.ended_at) }}</dd></template>
         </dl>
         <p v-if="event.details?.mass_disconnect" class="small text-muted mb-0">Часть массового отключения устройств; индивидуальный сигнал списывания не создаётся.</p>
@@ -117,6 +118,8 @@ const roomName = computed(() => props.data?.config?.room_name || rooms.value.fin
 const openClassroomEvents = computed(() => props.data?.config?.require_guard && !props.settingsOnly
   ? (props.data.classroom_events || []).filter(e => !e.ended_at && e.kind !== 'mass_disconnect').slice(0, 3)
   : [])
+const evidenceLabels = { bound: 'Привязанная вкладка вышла на связь с GeekExam', other: 'Другая вкладка попытки вышла на связь с GeekExam', unknown: 'Попытка вышла на связь с GeekExam' }
+const notificationLabels = { pending: 'В очереди', sent: 'Отправлено', no_recipient: 'Нет доступного чата преподавателя', uncertain: 'Доставка не подтверждена', rejected: 'Сообщение отклонено' }
 function applyConfig(config) {
   roomId.value = config.room_id
   enabled.value = config.enabled
@@ -134,6 +137,7 @@ async function loadRooms() { try { rooms.value = (await api.getPresenceRooms()).
 function toggleSettings() { settings.value = !settings.value; if (settings.value && requireGuard.value && props.data?.guard_configured) loadRooms() }
 function changeGuardRequirement() {
   dirty.value = true
+  if (requireGuard.value) enabled.value = true
   actionError.value = ''
   if (requireGuard.value && props.data?.guard_configured) loadRooms()
 }

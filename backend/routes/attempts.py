@@ -300,7 +300,9 @@ def get_attempt(attempt_id):
         return jsonify({'error': 'Forbidden'}), 403
     if role not in ('teacher', 'admin') and not guard.attempt_access_allowed(attempt):
         return guard.admission_error()
-    return jsonify(_attempt_detail(attempt, include_check_config=role in ('teacher', 'admin')))
+    response = jsonify(_attempt_detail(attempt, include_check_config=role in ('teacher', 'admin')))
+    response.headers['Cache-Control'] = 'private, no-store'
+    return response
 
 
 @attempts_bp.route('/api/attempts/<int:attempt_id>/finish', methods=['POST'])
