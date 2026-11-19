@@ -69,10 +69,21 @@ def endpoint_set(router_id):
     return jsonify(origin=row.origin, enabled=row.enabled, version=row.version)
 
 
+def proof_target(data):
+    if 'test_id' in data:
+        if 'attempt_id' in data or 'require_authorized' in data:
+            raise ApiError('invalid_proof_target')
+        return 'test', integer(data['test_id'])
+    require_authorized = data.get('require_authorized', False)
+    if 'attempt_id' not in data or type(require_authorized) is not bool:
+        raise ApiError('invalid_proof_target')
+    return ('authorized_attempt' if require_authorized else 'attempt'), integer(data['attempt_id'])
+
+
 @exam_presence.post('/proofs/start')
 def start():
-    data = body({'actor_id', 'room_id', 'user_id', 'attempt_id', 'client_id'},
-                {'actor_id', 'room_id', 'user_id', 'attempt_id', 'client_id'})
+    data = body({'actor_id', 'room_id', 'user_id', 'attempt_id', 'test_id', 'require_authorized', 'client_id'},
+                {'actor_id', 'room_id', 'user_id', 'client_id'})
     teacher = actor(data)
     room = authorize_room(text(data['room_id'], 36), teacher)
     user = db.session.get(User, integer(data['user_id']))
@@ -80,7 +91,16 @@ def start():
         raise ApiError('identity_refresh_required', 409)
     if teacher.role != 'admin' and user.id != teacher.id and (user.role != 'student' or not db.session.get(StudentRoom,(room.id,user.id))):
         raise ApiError('forbidden',403)
-    attempt_id, client_id = integer(data['attempt_id']), text(data['client_id'], 36)
+    scope, target_id = proof_target(data)
+    client_id = text(data['client_id'], 36)
+    if scope == 'test':
+        db.session.execute(db.select(User.id).where(User.id == user.id).with_for_update()).scalar_one()
+        rounds = db.session.scalar(db.select(db.func.count(db.distinct(BrowserProof.client_id))).where(
+            BrowserProof.user_id == user.id, BrowserProof.scope == scope, BrowserProof.target_id == target_id,
+            BrowserProof.expires_at > now(), BrowserProof.consumed_at.is_(None),
+        ))
+        if rounds >= 8:
+            return jsonify(state='wait', retry_after_seconds=45, items=[])
     db.session.execute(db.delete(BrowserProof).where(BrowserProof.expires_at < now()-timedelta(days=1)))
     # One bounded set per browser client, with no user credentials in LAN tokens.
     active = db.session.scalar(db.select(db.func.count()).select_from(BrowserProof).where(
@@ -98,7 +118,8 @@ def start():
             continue
         token = secrets.token_urlsafe(32)
         row = BrowserProof(token_digest=digest(token), room_id=room.id, router_id=router.id, user_id=user.id,
-            actor_id=teacher.id, attempt_id=attempt_id, client_id=client_id, browser_origin=current_app.config['EXAM_ORIGIN'],
+            actor_id=teacher.id, target_id=target_id, scope=scope, client_id=client_id,
+            browser_origin=current_app.config['EXAM_ORIGIN'],
             endpoint_origin=endpoint.origin, expires_at=now()+timedelta(seconds=45))
         db.session.add(row); db.session.flush()
         items.append({'id':row.id, 'token':token, 'url':endpoint.origin+'/v1/browser-proof'})
@@ -159,12 +180,15 @@ def complete():
     user = db.session.get(User, row.user_id)
     if not user or user.role_expires_at <= now():
         raise ApiError('identity_refresh_required', 409)
+    session = active_session(device, router)
+    if row.scope != 'attempt' and (not session or session.user_id != user.id or session.expires_at <= now()
+                                   or session.method == 'browser_lan_proof'):
+        raise ApiError('device_not_authorized', 409)
     if row.completed_at:
         if row.device_id != device.id or row.epoch != device.epoch:
             raise ApiError('proof_already_completed', 409)
         return jsonify(id=row.id, state='proved')
     # No implicit assignment of a live device currently granted to another user.
-    session = active_session(device, router)
     if session and session.expires_at > now() and not session.revoked_at and session.user_id != user.id:
         raise ApiError('device_has_another_user', 409)
     if not session or session.expires_at <= now() or session.revoked_at:
@@ -182,16 +206,19 @@ def complete():
 
 @exam_presence.post('/proofs/consume')
 def consume():
-    data = body({'actor_id', 'room_id', 'user_id', 'attempt_id', 'client_id', 'proof_id'},
-                {'actor_id', 'room_id', 'user_id', 'attempt_id', 'client_id', 'proof_id'})
+    data = body({'actor_id', 'room_id', 'user_id', 'attempt_id', 'test_id', 'require_authorized', 'client_id', 'proof_id'},
+                {'actor_id', 'room_id', 'user_id', 'client_id', 'proof_id'})
     teacher = actor(data)
     room = authorize_room(text(data['room_id'], 36), teacher)
+    scope, target_id = proof_target(data)
     row = db.session.execute(db.select(BrowserProof).where(BrowserProof.id == text(data['proof_id'],36)).with_for_update()).scalar_one_or_none()
-    if not row or (row.room_id,row.user_id,row.attempt_id,row.client_id) != (room.id,integer(data['user_id']),integer(data['attempt_id']),text(data['client_id'],36)):
+    if not row or (row.room_id, row.user_id, row.scope, row.target_id, row.client_id) != (
+        room.id, integer(data['user_id']), scope, target_id, text(data['client_id'], 36)
+    ):
         raise ApiError('invalid_proof', 403)
     if row.actor_id != teacher.id:
         raise ApiError('proof_authority_changed',403)
-    if row.expires_at <= now() or not row.completed_at:
+    if row.expires_at <= now() or not row.completed_at or (scope == 'test' and row.consumed_at):
         raise ApiError('proof_not_ready', 409)
     user = db.session.get(User,row.user_id)
     if not user or user.role_expires_at <= now():
@@ -203,7 +230,10 @@ def consume():
         raise ApiError('endpoint_changed',409)
     if not is_fresh(router) or not device.associated or router.boot_id != row.boot_id or device.epoch != row.epoch or session.user_id != row.user_id or session.revoked_at or session.expires_at <= now() or active_session(device,router) != session:
         raise ApiError('fresh_observation_required',409)
+    if scope != 'attempt' and session.method == 'browser_lan_proof':
+        raise ApiError('device_not_authorized', 409)
     row.consumed_at = row.consumed_at or now()
     db.session.commit()
     return jsonify(session_id=session.id,user_id=row.user_id,device_id=device.id,router_id=router.id,
-        last_confirmed_at=stamp(device.observed_at),proved_at=stamp(row.completed_at),method='browser_lan_proof')
+        last_confirmed_at=stamp(device.observed_at),proved_at=stamp(row.completed_at),method='browser_lan_proof',
+        authorized=scope != 'attempt')

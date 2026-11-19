@@ -106,6 +106,8 @@ def complete():
         binding = NetworkSession(device_id=device.id, user_id=user.id, boot_id=router.boot_id,
             epoch=device.epoch, expires_at=now()+timedelta(hours=8), method='codingprojects_portal', created_by=user.id)
         db.session.add(binding); db.session.flush()
+    elif binding.method == 'browser_lan_proof':
+        binding.method = 'codingprojects_portal'
     if user.role == 'student' and not db.session.get(StudentRoom, (router.room_id, user.id)):
         # Physical, authenticated presence makes the pupil visible to this room's teacher.
         db.session.add(StudentRoom(room_id=router.room_id, user_id=user.id))

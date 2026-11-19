@@ -88,7 +88,11 @@
       </div>
     </div>
   </div>
-  <div v-else-if="loadError" class="alert alert-danger" role="alert">{{ loadError }} <button class="btn btn-outline-danger btn-sm" @click="loadAttempt">Повторить</button></div>
+  <div v-else-if="loadError" class="alert alert-danger" role="alert">
+    {{ loadError }}
+    <RouterLink v-if="guardAccessRequired" to="/join" class="btn btn-sm btn-outline-danger">Ко входу в тест</RouterLink>
+    <button v-else class="btn btn-sm btn-outline-danger" @click="loadAttempt">Повторить</button>
+  </div>
   <div v-else class="text-center py-5"><div class="spinner-border" /></div>
 </template>
 
@@ -138,6 +142,7 @@ let timerInterval = null, live = null, disposed = false
 const saveState = ref('idle')
 const actionError = ref('')
 const loadError = ref('')
+const guardAccessRequired = ref(false)
 const saveClosed = ref(false)
 const recoveredDrafts = ref({})
 const hasRecovery = computed(() => Object.keys(recoveredDrafts.value).length > 0)
@@ -400,8 +405,10 @@ function stopTimer() {
 
 async function loadAttempt() {
   loadError.value = ''
-  try { await store.load(route.params.id) } catch {
-    loadError.value = 'Не удалось загрузить тест.'
+  guardAccessRequired.value = false
+  try { await store.load(route.params.id) } catch (error) {
+    guardAccessRequired.value = error.response?.data?.error_code === 'guard_authorization_required'
+    loadError.value = guardAccessRequired.value ? error.response.data.error : 'Не удалось загрузить тест.'
     return
   }
   if (disposed) return
@@ -418,18 +425,18 @@ async function loadAttempt() {
   deviceBinder?.stop()
   let presenceStorage
   try { presenceStorage = window.sessionStorage } catch { /* Private mode can block storage. */ }
-  deviceBinder = createAutoDeviceBinding({
+  deviceBinder = store.attempt.guard_required ? createAutoDeviceBinding({
     start: async data => (await api.startDeviceProof(route.params.id,data)).data,
     finish: async data => (await api.finishDeviceProof(route.params.id,data)).data,
     onChange: value => { deviceProofState.value = value.state },
-  })
+  }) : null
   presence = createAttemptPresence({
     attemptId: route.params.id,
     register: async data => (await api.registerPresence(route.params.id, data)).data,
     heartbeat: async data => (await api.heartbeat(route.params.id, data)).data,
     storage: presenceStorage, visible: () => document.visibilityState === 'visible',
     onChange: value => { presenceState.value = value },
-    onReady: value => deviceBinder.begin(value),
+    onReady: value => deviceBinder?.begin(value),
   })
   presence.start()
   live = createLiveRefresh({

@@ -10,6 +10,7 @@ from auth import api_login_required, teacher_required, current_user_id
 from models import db, Attempt, Test
 from presence_models import PresenceClient, PresenceHeartbeat, PresenceConfig, PresenceEvent, AttemptPresence
 import guard_client
+from guard_admission import admission_error, attempt_access_allowed, requires_guard
 import presence_service as service
 from time_utils import utc_iso
 
@@ -41,6 +42,8 @@ def attempt_for_owner(attempt_id):
         abort(403)
     if attempt.finished_at:
         abort(410)
+    if not attempt_access_allowed(attempt):
+        abort(admission_error())
     return attempt
 
 
@@ -79,6 +82,11 @@ def register_client(attempt_id):
         client = PresenceClient(attempt_id=attempt_id, token_digest=hashlib.sha256(token.encode()).hexdigest(),
                                 created_at=service.now(), last_seen_at=service.now())
         db.session.add(client)
+    if requires_guard(config):
+        state = db.session.get(AttemptPresence, attempt_id)
+        if state and not state.bound_client_id:
+            db.session.flush()
+            state.bound_client_id = client.id
     db.session.commit()
     return jsonify(enabled=True, client_id=client.id, code=client.id[:8].upper(), token=token,
                    next_sequence=client.last_sequence + 1, interval_seconds=5)
@@ -127,11 +135,20 @@ def snapshot(test_id):
     return jsonify(service.snapshot(db.get_or_404(Test, test_id)))
 
 
+@presence_bp.get('/tests/<int:test_id>/presence/settings')
+@teacher_required
+def settings(test_id):
+    db.get_or_404(Test, test_id)
+    return jsonify(service.settings_view(db.session.get(PresenceConfig, test_id)))
+
+
 @presence_bp.put('/tests/<int:test_id>/presence')
 @teacher_required
 def configure(test_id):
-    data = body({'version', 'enabled', 'room_id'})
+    data = body({'version', 'enabled', 'room_id', 'require_guard'})
     if type(data.get('version')) is not int or type(data.get('enabled')) is not bool:
+        abort(422)
+    if 'require_guard' in data and type(data['require_guard']) is not bool:
         abort(422)
     room_id = data.get('room_id')
     if room_id is not None and (not isinstance(room_id, str) or not 1 <= len(room_id) <= 36):
@@ -140,12 +157,15 @@ def configure(test_id):
     config = db.session.get(PresenceConfig, test_id)
     if data['version'] != (config.version if config else 0):
         return jsonify(error='Настройки уже изменены. Обновите страницу.'), 409
+    require_guard = data.get('require_guard', requires_guard(config))
+    if require_guard and not room_id:
+        return jsonify(error='Выберите кабинет для проверки авторизации в Guard.'), 422
     room_name = None
-    if room_id:
+    if require_guard:
         try:
             room_data = guard_client.call('rooms', current_user_id(), room_id=room_id)
             room_name = str(room_data['room']['name'])[:120]
-        except guard_client.GuardUnavailable:
+        except (guard_client.GuardUnavailable, KeyError, TypeError):
             return jsonify(error='Кабинет недоступен. Настройки не изменены.'), 503
     # Serialize first configuration creation, then recheck the optimistic version.
     db.session.execute(db.select(Test).where(Test.id == test_id).with_for_update()).scalar_one()
@@ -154,20 +174,18 @@ def configure(test_id):
     if data['version'] != (config.version if config else 0):
         return jsonify(error='Настройки уже изменены. Обновите страницу.'), 409
     config = config or service.ensure_config(test)
-    if config.guard_room_id != room_id or not data['enabled']:
+    if config.guard_room_id != room_id or (config.require_guard and not require_guard):
         attempts = db.session.execute(db.select(Attempt).where(Attempt.test_id == test_id).order_by(Attempt.id).with_for_update()).scalars()
         for attempt in attempts:
             state = db.session.get(AttemptPresence, attempt.id)
             if state and state.guard_session_id:
-                for gap in db.session.execute(db.select(PresenceEvent).where(PresenceEvent.attempt_id==attempt.id,
-                    PresenceEvent.kind=='device_disconnected',PresenceEvent.ended_at.is_(None))).scalars():
-                    gap.ended_at=service.now();gap.details={**gap.details,'closed_by':'binding_changed'}
-                service.update_review_evidence(attempt)
+                service.close_guard_gaps(attempt)
                 service.event(test_id, 'unbind:' + str(attempt.id) + ':' + utc_iso(service.now()), 'binding_changed',
                               service.now(), attempt_id=attempt.id, details={'reason':'monitor_configuration_changed'})
                 state.guard_session_id = state.bound_client_id = None
                 state.guard_state, state.guard_reason = 'unbound', 'monitor_configuration_changed'
     config.guard_room_id, config.enabled = room_id, data['enabled']
+    config.require_guard = require_guard
     config.guard_room_name = room_name
     config.configured_by, config.updated_at = current_user_id(), service.now()
     try:
@@ -183,8 +201,8 @@ def configure(test_id):
 def candidates(attempt_id):
     attempt = db.get_or_404(Attempt, attempt_id)
     config = db.session.get(PresenceConfig, attempt.test_id)
-    if not config or not config.guard_room_id:
-        return jsonify(error='Сначала выберите кабинет теста.'), 422
+    if not requires_guard(config) or not config.guard_room_id:
+        return jsonify(error='Сначала включите проверку Guard и выберите кабинет.'), 422
     try:
         return jsonify(guard_client.call('rooms', current_user_id(), room_id=config.guard_room_id, user_id=attempt.user_id))
     except guard_client.GuardUnavailable:
@@ -199,7 +217,7 @@ def bind(attempt_id):
         abort(422)
     attempt = db.get_or_404(Attempt, attempt_id)
     config = db.session.get(PresenceConfig, attempt.test_id)
-    if attempt.finished_at or not config or not config.enabled or not config.guard_room_id:
+    if attempt.finished_at or not requires_guard(config) or not config.enabled or not config.guard_room_id:
         abort(409)
     version = config.version
     try:
@@ -224,10 +242,7 @@ def bind(attempt_id):
     if not observed or not 0 <= (service.now()-observed).total_seconds() <= service.GUARD_TTL:
         return jsonify(error='Данные об устройстве устарели. Обновите список.'), 409
     state = service.ensure_attempt(attempt)
-    for gap in db.session.execute(db.select(PresenceEvent).where(PresenceEvent.attempt_id==attempt_id,
-        PresenceEvent.kind=='device_disconnected',PresenceEvent.ended_at.is_(None))).scalars():
-        gap.ended_at=service.now();gap.details={**gap.details,'closed_by':'binding_changed'}
-    service.update_review_evidence(attempt)
+    service.close_guard_gaps(attempt)
     state.guard_session_id, state.guard_device_id, state.guard_router_id = candidate['session_id'], candidate['device_id'], candidate['router_id']
     state.bound_client_id, state.bound_by = client.id, current_user_id()
     state.binding_confirmed_at = state.guard_checked_at = service.now()

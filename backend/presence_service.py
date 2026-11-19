@@ -74,6 +74,16 @@ def update_review_evidence(attempt):
             row.details={**row.details,'evidence_client_id':heartbeat.client_id,'evidence_sequence':heartbeat.sequence}
 
 
+def close_guard_gaps(attempt):
+    for gap in db.session.execute(db.select(PresenceEvent).where(
+        PresenceEvent.attempt_id == attempt.id, PresenceEvent.kind == 'device_disconnected',
+        PresenceEvent.ended_at.is_(None),
+    )).scalars():
+        gap.ended_at = now()
+        gap.details = {**gap.details, 'closed_by': 'binding_changed'}
+    update_review_evidence(attempt)
+
+
 def update_exam_gaps(attempt,at):
     status=exam_status(attempt,at)
     if status['state']=='offline':
@@ -173,7 +183,8 @@ def mark_guard_unavailable(config,attempts,reason,at):
 
 
 def collect_test(config):
-    version,room_id,actor_id=config.version,config.guard_room_id,config.configured_by
+    version, actor_id = config.version, config.configured_by
+    room_id = config.guard_room_id if config.require_guard else None
     # Briefly reconcile historical observations at submission, without accepting
     # any new browser contact or events after the attempt's finish timestamp.
     active=db.or_(Attempt.finished_at.is_(None),Attempt.finished_at>=now()-timedelta(seconds=60))
@@ -235,6 +246,15 @@ def event_view(row):
         'review_note':row.review_note,'details':row.details}
 
 
+def settings_view(config):
+    return {'guard_configured': guard_client.configured(),
+            'config': {'enabled': config.enabled if config else True,
+                       'require_guard': bool(config and config.require_guard),
+                       'room_id': config.guard_room_id if config else None,
+                       'room_name': config.guard_room_name if config else None,
+                       'version': config.version if config else 0}}
+
+
 def snapshot(test):
     at=now();config=db.session.get(PresenceConfig,test.id)
     attempts=db.session.execute(db.select(Attempt).where(Attempt.test_id==test.id)).scalars().all()
@@ -257,7 +277,5 @@ def snapshot(test):
             'bound':bool(state and state.guard_session_id),'history_complete':state.history_complete if state else True,
             'binding_confirmed_at':utc_iso(state.binding_confirmed_at) if state else None},
             'review_count':reviews or 0,'event_count':total})
-    return {'server_time':utc_iso(at),'heartbeat_ttl_seconds':HEARTBEAT_TTL,'guard_configured':guard_client.configured(),
-            'config':{'enabled':config.enabled if config else True,'room_id':config.guard_room_id if config else None,
-                      'room_name':config.guard_room_name if config else None,'version':config.version if config else 0},
+    return {'server_time':utc_iso(at),'heartbeat_ttl_seconds':HEARTBEAT_TTL,**settings_view(config),
             'attempts':result,'classroom_events':[event_view(row) for row in events if row.attempt_id is None]}

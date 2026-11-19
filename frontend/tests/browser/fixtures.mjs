@@ -5,7 +5,8 @@ export async function mockPlatform(page, role = 'student') {
   const state = {
     user: { id: 1, name: 'Пользователь', role },
     fail: {}, saves: [], checks: 0, finishes: 0, reads: 0, testUpdates: [], onSave: null,
-    questionReview: [], reviewQuestions: {}, wrongAnswers: {},
+    questionReview: [], reviewQuestions: {}, wrongAnswers: {}, roomReads: 0,
+    presence: { guard_configured: true, config: { enabled: true, require_guard: false, room_id: null, version: 0 } },
     test: { id: 1, title: 'Проверочный тест', description: '', code: 'ABC', is_active: false, time_limit: null,
       attempt_count: 0, variants: [{ id: 1, title: 'Вариант 1', questions: [question] }] },
     attempt: { id: 1, test_id: 1, test_title: 'Проверочный тест', user_name: 'Ученик', variant_title: 'Вариант 1',
@@ -21,6 +22,7 @@ export async function mockPlatform(page, role = 'student') {
     if (failure) { await route.fulfill({ status: failure.status || 503, json: failure }); return }
     const body = method === 'GET' ? null : request.postDataJSON()
     if (path === '/api/me') return route.fulfill({ json: state.user })
+    if (path === '/api/join') return route.fulfill({ status: 201, json: { attempt_id: state.attempt.id } })
     if (path === '/api/answers/1' && method === 'PUT') {
       if (state.onSave && await state.onSave(route, body)) return
       state.saves.push(body.value)
@@ -51,6 +53,17 @@ export async function mockPlatform(page, role = 'student') {
     if (path === '/api/my-attempts' || path === '/api/tests/1/attempts') return route.fulfill({ json: [state.attempt] })
     if (path === '/api/tests/1/results') {
       return route.fulfill({ json: { attempts: [state.attempt], question_review: state.questionReview } })
+    }
+    if (path === '/api/tests/1/presence/settings') return route.fulfill({ json: state.presence })
+    if (path === '/api/tests/1/presence') {
+      if (method === 'PUT') {
+        state.presence.config = { ...body, version: body.version + 1 }
+      }
+      return route.fulfill({ json: { ...state.presence, attempts: [], server_time: new Date().toISOString() } })
+    }
+    if (path === '/api/presence/rooms') {
+      state.roomReads++
+      return route.fulfill({ json: { items: [{ id: 'room-a', name: 'Кабинет 409' }] } })
     }
     const reviewOrder = path.match(/^\/api\/tests\/1\/question-review\/(\d+)$/)?.[1]
     if (reviewOrder !== undefined) {

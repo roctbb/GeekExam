@@ -30,6 +30,8 @@
         <button v-if="test.time_limit != null" class="btn btn-outline-primary btn-sm" :disabled="!!pending" @click="extendTime">+15 минут</button>
       </div>
     </div>
+    <ExamMonitoring :test-id="test.id" :data="guardSettings" :error="guardSettingsError"
+      settings-only @refresh="loadGuardSettings" />
     <div v-for="v in test.variants" :key="v.id" class="mb-4">
       <h6 class="fw-bold mb-2">{{ v.title }}</h6>
       <div class="table-responsive">
@@ -60,9 +62,11 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../../api'
 import MarkdownBody from '../../components/MarkdownBody.vue'
+import ExamMonitoring from '../../components/ExamMonitoring.vue'
 const route = useRoute()
 const router = useRouter()
 const test = ref(null), newCode = ref('')
+const guardSettings = ref(null), guardSettingsError = ref('')
 const pending = ref(''), error = ref(''), success = ref('')
 async function loadTest() {
   error.value = ''
@@ -73,6 +77,16 @@ async function loadTest() {
   } catch { error.value = 'Не удалось загрузить тест. Проверьте соединение и повторите.' }
 }
 onMounted(loadTest)
+onMounted(loadGuardSettings)
+async function loadGuardSettings() {
+  guardSettingsError.value = ''
+  try {
+    const { data } = await api.getPresenceSettings(route.params.id)
+    guardSettings.value = data
+  } catch {
+    guardSettingsError.value = 'Не удалось загрузить настройки доступа.'
+  }
+}
 async function runAction(name, action, message) {
   if (pending.value) return
   pending.value = name

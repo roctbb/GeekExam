@@ -46,10 +46,13 @@ class PresenceTests(unittest.TestCase):
     def setup_binding(self):
         credentials=self.register();self.beat(credentials)
         with self.app.app_context():
-            config=db.session.get(PresenceConfig,1);config.guard_room_id='room';db.session.add(AttemptPresence(attempt_id=1,
+            config=db.session.get(PresenceConfig,1);config.guard_room_id='room';config.require_guard=True;db.session.add(AttemptPresence(attempt_id=1,
                 guard_session_id='session',bound_client_id=credentials['client_id'],binding_confirmed_at=self.clock,
                 binding_observed_at=self.clock,guard_state='online'))
             db.session.commit()
+            version = config.version
+        with self.student.session_transaction() as session:
+            session['guard_attempts'] = [[1, 2, version, 'session']]
         return credentials
 
     def observation(self,loss_at=None,recovered_at=None,mass=False,complete=True):
@@ -195,7 +198,9 @@ class PresenceTests(unittest.TestCase):
     def test_binding_requires_exact_user_current_client_and_fresh_guard_proof(self):
         creds=self.register()
         with self.app.app_context():
-            db.session.get(PresenceConfig,1).guard_room_id='room';db.session.commit()
+            config = db.session.get(PresenceConfig,1)
+            config.guard_room_id, config.require_guard = 'room', True
+            db.session.commit()
         candidate={'session_id':'s','user_id':2,'device_id':'d','router_id':'r','last_confirmed_at':utc_iso(self.clock)}
         payload={'session_id':'s','client_id':creds['client_id'],'confirmed':True}
         with patch('guard_client.call',return_value={'candidates':[candidate]}) as call:
@@ -211,36 +216,53 @@ class PresenceTests(unittest.TestCase):
         self.assertEqual(self.teacher.put('/api/tests/1/presence',json={**payload,'enabled':False}).status_code,200)
         self.assertEqual(self.teacher.put('/api/tests/1/presence',json=payload).status_code,409)
 
+    def test_guard_setting_is_opt_in_and_requires_an_available_room(self):
+        url = '/api/tests/1/presence'
+        settings = self.teacher.get(url + '/settings').json['config']
+        self.assertFalse(settings['require_guard'])
+        payload = {'version': settings['version'], 'enabled': True, 'room_id': None, 'require_guard': True}
+        self.assertEqual(self.teacher.put(url, json=payload).status_code, 422)
+        with patch('guard_client.call', return_value={'room': {'name': 'Кабинет'}}) as call:
+            configured = self.teacher.put(url, json={**payload, 'room_id': 'room'})
+        self.assertEqual(configured.status_code, 200)
+        self.assertTrue(configured.json['config']['require_guard'])
+        call.assert_called_once_with('rooms', 1, room_id='room')
+        with patch('guard_client.call') as call:
+            disabled = self.teacher.put(url, json={**payload, 'room_id': 'room',
+                'version': configured.json['config']['version'], 'require_guard': False})
+            self.assertFalse(disabled.json['config']['require_guard'])
+            with self.app.app_context():
+                service.collect_test(db.session.get(PresenceConfig, 1))
+            call.assert_not_called()
+
     def test_automatic_binding_requires_the_attempt_owner_and_exact_client(self):
         credentials=self.register()
         self.assertEqual(self.teacher.post('/api/attempts/1/presence/auto/start',json=credentials).status_code,403)
         self.assertEqual(self.student.post('/api/attempts/1/presence/auto/start',json={**credentials,'token':'wrong'}).status_code,403)
 
-    def test_automatic_first_binding_uses_guard_proof_and_preserves_original_on_new_device(self):
+    def test_automatic_binding_requires_guard_admission(self):
         credentials=self.register()
         with self.app.app_context():
-            db.session.get(PresenceConfig,1).guard_room_id='room';db.session.commit()
-        candidate={'session_id':'s','device_id':'d','router_id':'r','user_id':2,'method':'browser_lan_proof',
-            'last_confirmed_at':utc_iso(self.clock),'proved_at':utc_iso(self.clock)}
-        with patch('guard_client.call',return_value=candidate):
-            response=self.student.post('/api/attempts/1/presence/auto/finish',json={**credentials,'proof_id':'proof-one'})
-            self.assertEqual(response.status_code,200)
-        with self.app.app_context():self.assertEqual(db.session.get(AttemptPresence,1).guard_device_id,'d')
-        self.assertEqual(self.events()[0]['details']['method'],'browser_lan_proof')
-        with patch('guard_client.call',return_value={**candidate,'device_id':'different'}):
-            response=self.student.post('/api/attempts/1/presence/auto/finish',json={**credentials,'proof_id':'proof-two'})
-            self.assertEqual(response.json['state'],'different_device')
-        with self.app.app_context():self.assertEqual(db.session.get(AttemptPresence,1).guard_device_id,'d')
-        self.assertTrue(any(e['kind']=='device_mismatch' and e['review_required'] for e in self.events()))
+            config = db.session.get(PresenceConfig, 1)
+            config.guard_room_id, config.require_guard = 'room', True
+            db.session.commit()
+        with patch('guard_client.call') as call:
+            response = self.student.post('/api/attempts/1/presence/auto/start', json=credentials)
+            self.assertEqual(response.status_code, 403)
+            self.assertEqual(response.json['error_code'], 'guard_authorization_required')
+            call.assert_not_called()
 
     def test_auto_binding_does_not_replace_a_changed_network_session_within_same_attempt(self):
         credentials=self.setup_binding()
         with self.app.app_context():
             state=db.session.get(AttemptPresence,1);state.guard_device_id='d';state.guard_router_id='r';db.session.commit()
-        candidate={'session_id':'new-session','device_id':'d','router_id':'r','user_id':2,'method':'browser_lan_proof',
+        candidate={'session_id':'new-session','device_id':'d','router_id':'r','user_id':2,'method':'browser_lan_proof','authorized':True,
             'last_confirmed_at':utc_iso(self.clock),'proved_at':utc_iso(self.clock)}
         with patch('guard_client.call',return_value=candidate):
             self.assertEqual(self.student.post('/api/attempts/1/presence/auto/finish',json={**credentials,'proof_id':'p'}).status_code,200)
+        with patch('guard_client.call', return_value={**candidate, 'device_id': 'different'}):
+            response = self.student.post('/api/attempts/1/presence/auto/finish', json={**credentials, 'proof_id': 'different'})
+            self.assertEqual(response.json['state'], 'different_device')
         with self.app.app_context():self.assertEqual(db.session.get(AttemptPresence,1).guard_session_id,'session')
 
     def test_finished_attempt_and_expired_proof_cannot_auto_bind(self):

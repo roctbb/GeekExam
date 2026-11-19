@@ -25,8 +25,14 @@ def call(path,actor_id,**payload):
     try:
         response=requests.post(config.GUARD_URL.rstrip('/')+'/api/v1/internal/exams/network/'+path,
             json={'actor_id':actor_id,**payload},headers={'Authorization':'Bearer '+token},timeout=(3,5),allow_redirects=False)
-        if response.status_code!=200:raise GuardUnavailable('access_denied' if response.status_code in (401,403,404) else 'guard_unavailable')
         if len(response.content)>2*1024*1024:raise GuardUnavailable('invalid_guard_response')
+        if response.status_code == 409 and path == 'proofs/consume':
+            raise GuardUnavailable('proof_not_ready')
+        if response.status_code == 409 and path == 'proofs/start':
+            problem = response.json()
+            if isinstance(problem, dict) and problem.get('error') == 'identity_refresh_required':
+                raise GuardUnavailable('access_denied')
+        if response.status_code!=200:raise GuardUnavailable('access_denied' if response.status_code in (401,403,404) else 'guard_unavailable')
         data=response.json()
         if not isinstance(data,dict):raise ValueError()
         return data

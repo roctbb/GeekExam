@@ -34,6 +34,7 @@ export default {
   getTestResults: (id) => api.get(`/tests/${id}/results`),
   getQuestionReview: (testId, order, signal) => api.get(`/tests/${testId}/question-review/${order}`, { signal }),
   getPresence: id => api.get(`/tests/${id}/presence`),
+  getPresenceSettings: id => api.get(`/tests/${id}/presence/settings`),
   configurePresence: (id, data) => api.put(`/tests/${id}/presence`, data),
   getPresenceRooms: () => api.get('/presence/rooms'),
   getPresenceCandidates: id => api.get(`/attempts/${id}/presence/candidates`),
@@ -48,7 +49,7 @@ export default {
     signal, params: { include_skipped: 0 },
   }),
   // Attempts
-  joinTest: (code) => api.post('/join', { code }),
+  joinTest: (code, proof = {}) => api.post('/join', { code, ...proof }),
   getAttempt: (id) => api.get(`/attempts/${id}`),
   deleteAttempt: (id) => api.delete(`/attempts/${id}`),
   finishAttempt: (id) => api.post(`/attempts/${id}/finish`),

@@ -25,17 +25,19 @@
       </div>
       <div class="table-responsive">
       <table class="table table-hover align-middle">
-        <thead><tr><th>Ученик</th><th>Вариант</th><th>GeekExam</th><th>Сеть Guard</th><th>Начало</th><th>Конец</th><th>Результат</th><th></th></tr></thead>
+        <thead><tr><th>Ученик</th><th>Вариант</th><th>GeekExam</th><th v-if="monitor.data.value?.config?.require_guard">Сеть Guard</th><th>Начало</th><th>Конец</th><th>Результат</th><th></th></tr></thead>
         <tbody>
           <tr v-for="a in sortedAttempts" :key="a.id">
             <td class="fw-semibold">{{ a.user_name }}</td>
             <td>{{ a.variant_title }}</td>
-            <td><PresenceStatus :value="monitor.byAttempt.value[a.id]?.exam" channel="exam" :stale="monitor.stale.value" :finished="!!a.finished_at" :enabled="monitor.data.value?.config?.enabled !== false" /></td>
             <td>
-              <PresenceStatus :value="monitor.byAttempt.value[a.id]?.guard" channel="guard" :stale="monitor.stale.value" :finished="!!a.finished_at" :enabled="monitor.data.value?.config?.enabled !== false" />
-              <button class="btn btn-sm btn-link p-0 mt-1 text-start" @click="monitorPanel.open(a)">
+              <PresenceStatus :value="monitor.byAttempt.value[a.id]?.exam" channel="exam" :stale="monitor.stale.value" :finished="!!a.finished_at" :enabled="monitor.data.value?.config?.enabled !== false" />
+              <button class="btn btn-sm btn-link d-block p-0 mt-1 text-start" @click="monitorPanel.open(a)">
                 {{ monitor.byAttempt.value[a.id]?.review_count ? `Проверить: ${monitor.byAttempt.value[a.id].review_count}` : 'Журнал связи' }}
               </button>
+            </td>
+            <td v-if="monitor.data.value?.config?.require_guard">
+              <PresenceStatus :value="monitor.byAttempt.value[a.id]?.guard" channel="guard" :stale="monitor.stale.value" :finished="!!a.finished_at" :enabled="monitor.data.value?.config?.enabled !== false" />
             </td>
             <td class="text-muted small">{{ fmt(a.started_at) }}</td>
             <td class="text-muted small">{{ fmt(a.finished_at) || '—' }}</td>

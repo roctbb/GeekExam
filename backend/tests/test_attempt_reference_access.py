@@ -31,7 +31,7 @@ class AttemptReferenceAccessTests(unittest.TestCase):
             session['role'] = role
         model = SimpleNamespace(query=Mock())
         model.query.get_or_404.return_value = self.attempt
-        with patch('routes.attempts.Attempt', model):
+        with patch('routes.attempts.Attempt', model), patch('routes.attempts.db.session.get', return_value=None):
             return self.client.get('/api/attempts/1')
 
     def test_teacher_and_admin_receive_reference_for_another_students_attempt(self):

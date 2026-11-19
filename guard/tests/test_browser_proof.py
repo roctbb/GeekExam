@@ -11,18 +11,19 @@ ENDPOINT = 'https://lan-409.guard.geekclass.ru:18766'
 
 
 def exam(app, path, **values):
+    target = {} if 'test_id' in values else {'attempt_id': 10}
     return app.test_client().post('/api/v1/internal/exams/network/proofs/'+path,
         headers=service_header(app,'EXAM_SERVICE_SECRET','guard:exams','geekexam'),
-        json={'actor_id':2,'room_id':'room-a','user_id':4,'attempt_id':10,'client_id':CLIENT,**values})
+        json={'actor_id':2,'room_id':'room-a','user_id':4,'client_id':CLIENT,**target,**values})
 
 
-def setup(app, login, enroll):
+def setup(app, login, enroll, **target):
     headers,_ = enroll('router-a')
     sync(app,headers)
     response = login(1).put('/api/v1/routers/router-a/browser-proof',headers=CSRF,
         json={'version':0,'origin':ENDPOINT,'enabled':True})
     assert response.status_code == 200,response.json
-    started = exam(app,'start')
+    started = exam(app,'start',**target)
     assert started.status_code == 200,started.json
     return headers,started.json['items'][0]
 
@@ -50,6 +51,30 @@ def test_first_device_proof_creates_network_session_and_is_bound_to_attempt_clie
     with app.app_context():
         assert db.session.get(BrowserProof,item['id']).consumed_at is not None
         assert db.session.query(NetworkSession).count()==1
+
+
+def test_test_admission_requires_existing_authorization_and_consumes_proof_once(app, login, enroll):
+    headers, item = setup(app, login, enroll, test_id=10)
+    assert complete(app, headers, item).json['error'] == 'device_not_authorized'
+    with app.app_context():
+        assert db.session.query(NetworkSession).count() == 0
+    path = '/api/v1/devices/' + device_id(app) + '/binding'
+    binding = {'epoch': 'connection-1', 'confirmed': True, 'user_id': 4}
+    assert login(1).post(path, headers=CSRF, json=binding).status_code == 201
+    with app.app_context():
+        granted = db.session.query(NetworkSession).one()
+        granted.expires_at = app.clock() - timedelta(seconds=1)
+        db.session.commit()
+    assert complete(app, headers, item).json['error'] == 'device_not_authorized'
+    with app.app_context():
+        assert db.session.query(NetworkSession).count() == 1
+    assert login(1).post(path, headers=CSRF, json=binding).status_code == 201
+    assert complete(app, headers, item).status_code == 200
+    assert exam(app, 'consume', proof_id=item['id']).status_code == 403
+    assert exam(app, 'consume', test_id=11, proof_id=item['id']).status_code == 403
+    verified = exam(app, 'consume', test_id=10, proof_id=item['id'])
+    assert verified.status_code == 200 and verified.json['authorized'] is True
+    assert exam(app, 'consume', test_id=10, proof_id=item['id']).status_code == 409
 
 
 def test_proof_requires_agent_identity_current_epoch_and_socket_source_match(app,login,enroll):
@@ -113,6 +138,17 @@ def test_additive_schema_upgrade_is_idempotent_and_preserves_existing_routers(ap
         result=app.test_cli_runner().invoke(args=['upgrade-browser-proof-schema'])
         assert result.exit_code==0,result.output
     with app.app_context():assert db.session.query(Router).count()==before
+
+
+def test_existing_browser_proof_rows_gain_legacy_scope(app, login, enroll):
+    _, item = setup(app, login, enroll)
+    with app.app_context(), db.engine.begin() as connection:
+        connection.execute(db.text('ALTER TABLE browser_proof DROP COLUMN scope'))
+    result = app.test_cli_runner().invoke(args=['upgrade-browser-proof-schema'])
+    assert result.exit_code == 0, result.output
+    with app.app_context():
+        row = db.session.get(BrowserProof, item['id'])
+        assert (row.scope, row.target_id) == ('attempt', 10)
 
 
 def test_teacher_scope_revoked_before_completion_and_identity_expired_before_consumption(app,login,enroll):

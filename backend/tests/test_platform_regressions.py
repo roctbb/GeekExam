@@ -27,6 +27,9 @@ from celery_tasks.check_answer import (
 from validation import validate_answer
 from attempt_lifecycle import finish_locked_attempt
 from answer_limits import SHORT_FIELD_LIMIT, TEXT_LIMIT, CODE_LIMIT, REQUEST_LIMIT
+from presence_models import AttemptPresence, PresenceConfig
+from time_utils import utc_iso
+from guard_client import GuardUnavailable
 
 TEST_DATABASE_URL = os.getenv('GEEKEXAM_TEST_DATABASE_URL', 'sqlite://')
 
@@ -118,6 +121,87 @@ class PlatformRegressionTests(unittest.TestCase):
                          {'answer': 'reference'})
         self.assertEqual(self.login(3).get('/api/my-attempts/1/results').status_code, 403)
         self.assertEqual(self.app.test_client().get('/api/my-attempts/1/results').status_code, 401)
+
+    def test_test_without_guard_opt_in_joins_without_contacting_guard(self):
+        with self.app.app_context():
+            db.session.add(PresenceConfig(test_id=1, guard_room_id='old-room', configured_by=1))
+            db.session.commit()
+        with patch('guard_client.call') as call:
+            response = self.login(3).post('/api/join', json={'code': 'TEST'})
+            self.assertEqual(response.status_code, 201)
+            call.assert_not_called()
+
+    def test_guard_proof_precedes_admission_and_is_bound_to_the_browser(self):
+        with self.app.app_context():
+            db.session.add(PresenceConfig(test_id=1, require_guard=True, guard_room_id='room', configured_by=1))
+            db.session.commit()
+        student = self.login(3)
+        another_browser = self.login(3)
+        code = {'code': 'TEST'}
+        items = [{'id': 'proof', 'token': 'local-token', 'url': 'https://lan.example.test/v1/browser-proof'}]
+        with patch('guard_client.call', return_value={'state': 'ready', 'items': items}) as start:
+            first = student.post('/api/join', json=code)
+            self.assertEqual(first.status_code, 202)
+            self.assertEqual(start.call_args.args, ('proofs/start', 1))
+            self.assertEqual(start.call_args.kwargs['test_id'], 1)
+        ticket = {**code, 'guard_ticket': first.json['guard_proof']['ticket'], 'proof_ids': ['proof']}
+
+        with patch('guard_client.call', side_effect=GuardUnavailable('proof_not_ready')) as consume:
+            self.assertEqual(another_browser.post('/api/join', json=ticket).status_code, 403)
+            consume.assert_not_called()
+            refused = student.post('/api/join', json=ticket)
+            self.assertEqual(refused.status_code, 403)
+            self.assertEqual(refused.json['error_code'], 'guard_authorization_required')
+        with self.app.app_context():
+            self.assertIsNone(Attempt.query.filter_by(user_id=3).first())
+
+        stamp = utc_iso(datetime.utcnow())
+        proof = {'user_id': 3, 'authorized': True, 'method': 'browser_lan_proof', 'session_id': 'session',
+                 'device_id': 'device', 'router_id': 'router', 'last_confirmed_at': stamp, 'proved_at': stamp}
+        with patch('guard_client.call', return_value={**proof, 'authorized': False}):
+            self.assertEqual(student.post('/api/join', json=ticket).status_code, 403)
+        with patch('guard_client.call', return_value=proof):
+            accepted = student.post('/api/join', json=ticket)
+            self.assertEqual(accepted.status_code, 201)
+        attempt_id = accepted.json['attempt_id']
+        details = f'/api/attempts/{attempt_id}'
+        first_detail = student.get(details).json
+        self.assertTrue(first_detail['guard_required'])
+        self.assertEqual(another_browser.get(details).status_code, 403)
+        self.assertEqual(another_browser.post(details + '/finish').status_code, 403)
+        answer_id = student.get(details).json['answers'][0]['id']
+        self.assertEqual(another_browser.put(f'/api/answers/{answer_id}', json={'value': {'text': 'blocked'}}).status_code, 403)
+        with self.app.app_context():
+            self.assertEqual(db.session.get(AttemptPresence, attempt_id).guard_session_id, 'session')
+        with patch('guard_client.call', return_value={'state': 'ready', 'items': items}):
+            resume = another_browser.post('/api/join', json=code).json['guard_proof']['ticket']
+        with patch('guard_client.call', return_value={**proof, 'session_id': 'new-session'}):
+            joined = another_browser.post('/api/join', json={**ticket, 'guard_ticket': resume})
+        self.assertEqual(joined.status_code, 200)
+        self.assertEqual(joined.json['attempt_id'], attempt_id)
+        self.assertEqual(another_browser.get(details).json['started_at'], first_detail['started_at'])
+        self.assertEqual(student.get(details).status_code, 403)
+
+    def test_guard_admission_rechecks_test_after_network_verification(self):
+        with self.app.app_context():
+            db.session.add(PresenceConfig(test_id=1, require_guard=True, guard_room_id='room', configured_by=1))
+            db.session.commit()
+        student = self.login(3)
+        items = [{'id': 'proof', 'token': 'local-token', 'url': 'https://lan.example.test/v1/browser-proof'}]
+        with patch('guard_client.call', return_value={'state': 'ready', 'items': items}):
+            ticket = student.post('/api/join', json={'code': 'TEST'}).json['guard_proof']['ticket']
+
+        def verify_after_stop(*_args, **_kwargs):
+            self.change(test={'is_active': False})
+            stamp = utc_iso(datetime.utcnow())
+            return {'user_id': 3, 'authorized': True, 'method': 'browser_lan_proof', 'session_id': 'session',
+                    'device_id': 'device', 'router_id': 'router', 'last_confirmed_at': stamp, 'proved_at': stamp}
+
+        with patch('guard_client.call', side_effect=verify_after_stop):
+            response = student.post('/api/join', json={'code': 'TEST', 'guard_ticket': ticket, 'proof_ids': ['proof']})
+        self.assertEqual(response.status_code, 404)
+        with self.app.app_context():
+            self.assertIsNone(Attempt.query.filter_by(user_id=3).first())
 
     def test_attempt_timestamps_have_explicit_utc_in_all_views(self):
         self.change(test={'time_limit': 5})

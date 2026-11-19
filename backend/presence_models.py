@@ -1,4 +1,4 @@
-"""Connection evidence is independent of answers, grading and test admission."""
+"""Connection evidence and per-test Guard admission settings."""
 from datetime import datetime
 import uuid
 from models import db
@@ -11,6 +11,7 @@ class PresenceConfig(db.Model):
     __tablename__ = 'presence_configs'
     test_id = db.Column(db.Integer, db.ForeignKey('tests.id',ondelete='CASCADE'), primary_key=True)
     enabled = db.Column(db.Boolean, nullable=False, default=True)
+    require_guard = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
     guard_room_id = db.Column(db.String(36))
     guard_room_name = db.Column(db.String(120))
     configured_by = db.Column(db.Integer, db.ForeignKey('users.id'))
