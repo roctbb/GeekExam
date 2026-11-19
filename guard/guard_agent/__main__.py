@@ -58,7 +58,7 @@ def password_source(config):
     return lambda: value
 
 
-def run(config, config_path, *, enforce=False, once=False):
+def run(config, config_path, *, enforce=False, once=False, handover_path=None):
     captive = config.get('captive_portal')
     if captive and enforce:
         raise RouterError('choose_one_enforcement_driver')
@@ -78,10 +78,15 @@ def run(config, config_path, *, enforce=False, once=False):
     if captive:
         from .captive import CaptiveEnforcer
         driver = CaptiveEnforcer(config['router_url'], config.get('username','admin'),password,timeout=4,
-                                 settings=captive, interfaces=config['student_interfaces'])
+                                 settings=captive, interfaces=config['student_interfaces'],router_id=config['router_id'])
         observer.address_resolver = driver.address_for
         observer.address_resolver_interfaces = {captive['bridge']}
     mode, boot, sequence = "enforce" if driver else "observe", str(uuid.uuid4()), 0
+    if handover_path:
+        from .handover import consume_handover
+        resumed=consume_handover(handover_path,config,observer)
+        if resumed:
+            boot,sequence=resumed
     proof_server, proof_retry_at = None, 0
     cache_path = Path(str(config_path) + ".policy.json")
     policy, anchored_at, server_time, last_report, last_message = None, None, None, None, None
@@ -191,6 +196,7 @@ def main():
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--enforce-experimental-ipv4", action="store_true")
     parser.add_argument("--once", action="store_true")
+    parser.add_argument('--resume-handover',type=Path)
     args = parser.parse_args()
     try:
         config = config_read(args.config, enrolled=args.action != "enroll")
@@ -216,7 +222,7 @@ def main():
                 driver.release()
                 print("Собственные ACL Guard сняты; результат проверен чтением роутера.")
                 return 0
-            return run(config, args.config, enforce=args.enforce_experimental_ipv4, once=args.once)
+            return run(config, args.config, enforce=args.enforce_experimental_ipv4, once=args.once,handover_path=args.resume_handover)
     except (RouterError, OSError, ValueError, KeyError, TypeError) as exc:
         print("Ошибка: " + (str(exc) if isinstance(exc, RouterError) else type(exc).__name__), file=sys.stderr)
         return 1

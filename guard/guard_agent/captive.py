@@ -7,6 +7,7 @@ import time
 from urllib.parse import urlsplit
 
 from .enforcer import local_ipv6_only
+from .captive_acl import CaptiveACL
 from .lan_radius import LanRadius
 from .policy import profile_for, parse_time
 from .rci import RciClient, RouterError, has_rci_error
@@ -40,7 +41,7 @@ def original_lan_peer(rows, peer, peer_port, local, local_port, network):
 
 
 class CaptiveEnforcer(RciClient):
-    def __init__(self, *args, settings, interfaces, **kwargs):
+    def __init__(self, *args, settings, interfaces, router_id, **kwargs):
         super().__init__(*args, **kwargs)
         self.bridge, self.chilli = settings['bridge'], settings['interface']
         if not re.fullmatch(r'Bridge[1-9][0-9]?', self.bridge) or not re.fullmatch(r'Chilli[0-9]', self.chilli) or interfaces != [self.bridge]:
@@ -56,9 +57,12 @@ class CaptiveEnforcer(RciClient):
         if not re.fullmatch(r'[a-zA-Z0-9_-]{32,128}', secret):
             raise RouterError('invalid_radius_secret')
         self.nas_id, self.listen = settings['nas_id'], str(listen)
+        self.router_ip = str(router_ip)
         self.proof_port = settings['proof_port']
         if type(self.proof_port) is not int or not 1024 <= self.proof_port <= 65535:
             raise RouterError('invalid_captive_proof_port')
+        self.traffic_acl = CaptiveACL(*args,router_id=router_id,interface=self.chilli,
+                                     legacy_acl=settings.get('legacy_acl'),**kwargs)
         self.radius = LanRadius(str(listen), str(router_ip), secret, self.nas_id,
                                 settings['auth_port'], settings['acct_port'])
         self.renewed = {}
@@ -137,15 +141,22 @@ class CaptiveEnforcer(RciClient):
             raise RouterError('agent_must_be_outside_student_segment')
         restricted = policy['manual_restriction'] or any(not x['expires_at'] or parse_time(x['expires_at']) > now for x in policy['restrictions'])
         devices = {x['mac']:x for x in policy['devices']}
-        wanted = {}
+        wanted,full_addresses = {},[]
         for observed in observations:
             if observed['interface'] != self.bridge or not observed['ip']:
                 continue
             if ipaddress.IPv4Address(observed['ip']) not in network:
                 raise RouterError('client_outside_student_network')
             device = devices.get(observed['mac'])
-            if device and profile_for(device,observed,restricted,now,session_grants=session_grants) == 'full':
-                wanted[observed['mac']] = observed
+            if device:
+                profile = profile_for(device,observed,restricted,now,session_grants=session_grants)
+                if profile in {'full','platform_only'}:
+                    wanted[observed['mac']] = observed
+                if profile == 'full':
+                    full_addresses.append(observed['ip'])
+        # Restrict traffic BEFORE admitting any new native portal session. The
+        # native authorization set does not change with the study-mode checkbox.
+        self.traffic_acl.apply_traffic(policy['resources'],full_addresses,self.listen,self.router_ip,self.proof_port)
         self.radius.retain({(x['mac'],x['ip'],x['epoch']) for x in wanted.values()})
         current = {x['mac'].lower():x for x in self.sessions()}
         for mac in current.keys()-wanted.keys():

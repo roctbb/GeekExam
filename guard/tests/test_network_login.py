@@ -98,3 +98,20 @@ def test_logout_revokes_this_browser_network_session(app,login,enroll):
     state=login(1).get('/api/v1/rooms/room-a').json
     assert state['devices'][0]['user'] is None
     assert state['devices'][0]['profile']=='bootstrap'
+
+
+def test_room_study_mode_changes_only_access_and_keeps_the_student_login(app,login,enroll):
+    agent,headers=prepare(app,enroll)
+    pupil=login(4);proof=begin(pupil).json
+    assert complete(agent,headers,proof['token']).status_code==200
+    teacher=login(2)
+    original=pupil.get('/api/v1/network-login/'+proof['id']).json
+    session_id=original['device']['session_id']
+    for restricted in [True,False,True]:
+        room=teacher.get('/api/v1/rooms/room-a').json
+        response=teacher.patch('/api/v1/rooms/room-a',json={'manual_restriction':restricted,'version':room['version']},headers={'X-CSRF-Token':'test-csrf'})
+        assert response.status_code==200
+        state=pupil.get('/api/v1/network-login/'+proof['id']).json
+        assert state['state']=='authenticated'
+        assert state['device']['session_id']==session_id
+        assert state['device']['profile']==('platform_only' if restricted else 'full')

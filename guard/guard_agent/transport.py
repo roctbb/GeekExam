@@ -42,7 +42,7 @@ class GuardClient:
         self.opener = build_opener(ProxyHandler({}), NoRedirects(), HTTPSHandler(context=ssl.create_default_context()))
 
     def post(self, path, body):
-        if path not in {"enroll", "sync", "report", "proofs/inspect", "proofs/complete", "network-login/inspect", "network-login/complete"}:
+        if path not in {"enroll", "sync", "report", "handover", "proofs/inspect", "proofs/complete", "network-login/inspect", "network-login/complete"}:
             raise RouterError("unsupported_agent_endpoint")
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if self.token:

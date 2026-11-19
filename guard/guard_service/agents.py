@@ -7,7 +7,7 @@ from flask import Blueprint, jsonify, request
 from .models import (db, AgentBoot, ApplyReport, Device, NetworkSession,
                      PolicySnapshot, Router, Segment)
 from .policy import fingerprint, snapshot, stamp
-from .routes import audit
+from .routes import audit,is_fresh
 from .security import ApiError, body, digest, integer, now, text
 
 
@@ -67,6 +67,22 @@ def mac_address(value):
     if not valid or int(parts[0], 16) & 1:
         raise ApiError("invalid_mac")
     return value
+
+
+@agents.post('/handover')
+def handover_state():
+    """Read current observation identities for an explicit LAN-agent upgrade."""
+    router=authenticate_agent()
+    body(set(),set())
+    if not router.boot_id or not is_fresh(router):
+        raise ApiError('fresh_observation_required',409)
+    segments={s.id:s.interface for s in db.session.execute(db.select(Segment).where(Segment.router_id==router.id)).scalars()}
+    devices=db.session.execute(db.select(Device).where(Device.router_id==router.id,Device.associated.is_(True))).scalars().all()
+    result={'server_time':stamp(now()),'observed_at':stamp(router.observation_at),'boot_id':router.boot_id,
+            'next_sequence':router.last_sequence+1,'devices':[
+                {'mac':d.mac,'ip':d.ip,'epoch':d.epoch,'interface':segments[d.segment_id]} for d in devices]}
+    db.session.commit()
+    return jsonify(result)
 
 
 @agents.post("/sync")
