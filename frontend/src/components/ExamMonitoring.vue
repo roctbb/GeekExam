@@ -3,49 +3,61 @@
     <div class="card-body">
       <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
         <div>
-          <h5 id="presence-title">Связь во время теста</h5>
-          <p class="small text-muted mb-1">{{ data?.config?.room_id ? `Кабинет Guard: ${roomName}` : 'Кабинет Guard ещё не выбран' }}. Проверка каждые 5 секунд, потеря связи с GeekExam — через 20 секунд без ответа.</p>
-          <p class="small text-muted mb-0">Последнее обновление: {{ fmt(data?.server_time) || 'ожидается' }}</p>
+          <h5 id="presence-title">{{ settingsOnly ? 'Доступ к тесту' : 'Связь во время теста' }}</h5>
+          <template v-if="!settingsOnly">
+            <p v-if="data?.config?.require_guard" class="small text-muted mb-1">Для входа требуется авторизация в кабинете Guard «{{ roomName }}».</p>
+            <p class="small text-muted mb-0">Последнее обновление: {{ fmt(data?.server_time) || 'ожидается' }}</p>
+          </template>
         </div>
-        <button class="btn btn-sm btn-outline-secondary" :aria-expanded="settings" @click="toggleSettings">Настройки связи</button>
+        <IconAction v-if="!settingsOnly" icon="settings" label="Настройки связи" :aria-expanded="settings" @click="toggleSettings" />
       </div>
-      <p v-if="error || stale" class="alert alert-warning mt-3 mb-0" role="status">{{ error || 'Свежие статусы ещё не получены.' }} При отсутствии обновлений состояние становится неизвестным.</p>
-      <p v-if="!data?.guard_configured && data" class="small text-muted mt-2 mb-0">Интеграция с Guard ещё не настроена на сервере. Связь с GeekExam учитывается отдельно.</p>
+      <div v-if="settingsOnly && error" class="alert alert-warning mt-3 mb-0" role="alert">
+        {{ error }} <button type="button" class="btn btn-sm btn-outline-secondary" @click="emit('refresh')">Повторить</button>
+      </div>
+      <p v-else-if="!settingsOnly && (error || stale)" class="alert alert-warning mt-3 mb-0" role="status">{{ error || 'Свежие статусы ещё не получены.' }} При отсутствии обновлений состояние становится неизвестным.</p>
+      <p v-if="settings && !data?.config && !error" class="small text-muted mb-0" role="status">Загружаем настройки…</p>
       <div v-for="event in openClassroomEvents" :key="event.id" class="alert alert-warning mt-3 mb-0" role="status">
         {{ titles[event.kind] }} · с {{ fmt(event.started_at) }}.
         {{ event.kind === 'mass_disconnect' ? 'Проверьте Wi-Fi кабинета.' : 'Присутствие устройств сейчас не подтверждено.' }}
       </div>
-      <form v-if="settings" class="border-top mt-3 pt-3" @submit.prevent="saveConfig">
-        <div class="form-check mb-2"><input id="monitor-enabled" v-model="enabled" type="checkbox" class="form-check-input" @change="dirty = true"><label class="form-check-label" for="monitor-enabled">Учитывать связь во время теста</label></div>
-        <label class="form-label" for="monitor-room">Кабинет</label>
-        <select id="monitor-room" v-model="roomId" class="form-select mb-2" :disabled="saving" @change="dirty = true">
-          <option :value="null">Только связь с GeekExam</option>
-          <option v-if="roomId && !rooms.some(r => r.id === roomId)" :value="roomId">Текущий кабинет</option>
-          <option v-for="room in rooms" :key="room.id" :value="room.id">{{ room.name }}</option>
-        </select>
-        <p class="small text-muted">Смена кабинета или отключение учёта снимает привязки устройств. История событий сохраняется. Настройки доступа в интернет здесь не меняются.</p>
+      <form v-if="settings && data?.config" class="border-top mt-3 pt-3" @submit.prevent="saveConfig">
+        <div class="form-check mb-2"><input id="monitor-enabled" v-model="enabled" type="checkbox" class="form-check-input" :disabled="saving" @change="dirty = true"><label class="form-check-label" for="monitor-enabled">Учитывать связь во время теста</label></div>
+        <div class="form-check mb-2">
+          <input id="monitor-require-guard" v-model="requireGuard" type="checkbox" class="form-check-input" :disabled="saving" @change="changeGuardRequirement">
+          <label class="form-check-label" for="monitor-require-guard">Требовать авторизацию устройства в Guard</label>
+        </div>
+        <template v-if="requireGuard">
+          <label class="form-label" for="monitor-room">Кабинет Guard</label>
+          <select id="monitor-room" v-model="roomId" class="form-select mb-2" :disabled="saving" @change="dirty = true">
+            <option :value="null">Выберите кабинет</option>
+            <option v-if="roomId && !rooms.some(r => r.id === roomId)" :value="roomId">{{ data.config.room_name || 'Текущий кабинет' }}</option>
+            <option v-for="room in rooms" :key="room.id" :value="room.id">{{ room.name }}</option>
+          </select>
+          <p class="small text-muted">Ученик сможет начать тест после проверки авторизации этого устройства в сети кабинета.</p>
+          <p v-if="!data.guard_configured" class="small text-muted">Подключение к Guard ещё не настроено.</p>
+        </template>
         <p v-if="dirty" class="small text-warning" role="status">Ожидает отправки: 1 изменение настроек. {{ saving ? 'Сохраняется…' : 'Нажмите «Сохранить».' }}</p>
         <p v-if="actionError" class="text-danger small" role="alert">{{ actionError }}</p>
-        <button class="btn btn-sm btn-primary" :disabled="saving || !dirty">{{ saving ? 'Сохраняется…' : 'Сохранить' }}</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary ms-2" :disabled="saving" @click="loadRooms">Обновить кабинеты</button>
+        <button class="btn btn-sm btn-primary" :disabled="saving || !dirty || (requireGuard && !roomId)">{{ saving ? 'Сохраняется…' : 'Сохранить' }}</button>
+        <button v-if="requireGuard && data.guard_configured" type="button" class="btn btn-sm btn-outline-secondary ms-2" :disabled="saving" @click="loadRooms">Обновить кабинеты</button>
       </form>
     </div>
   </section>
 
-  <dialog ref="dialog" class="presence-dialog" @close="selected = null" @click="backdropClose">
+  <dialog v-if="!settingsOnly" ref="dialog" class="presence-dialog" aria-labelledby="presence-dialog-title" @close="selected = null" @click="backdropClose">
     <div v-if="selected" class="p-3 p-md-4">
       <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
-        <h5 class="mb-0">Связь: {{ selected.user_name }}</h5>
-        <button class="btn btn-sm btn-outline-secondary" @click="dialog.close()">Закрыть</button>
+        <h5 id="presence-dialog-title" class="mb-0">Связь: {{ selected.user_name }}</h5>
+        <IconAction icon="close" label="Закрыть журнал" @click="dialog.close()" />
       </div>
       <p class="small text-muted">События помогают проверить условия выполнения работы. Они сами по себе не доказывают списывание и не меняют оценку.</p>
       <div class="row g-3 mb-3">
         <div class="col-sm-6"><h6>GeekExam</h6><PresenceStatus :value="current?.exam" channel="exam" :stale="stale" :finished="!!selected.finished_at" :enabled="data?.config?.enabled !== false" /></div>
-        <div class="col-sm-6"><h6>Сеть Guard</h6><PresenceStatus :value="current?.guard" channel="guard" :stale="stale" :finished="!!selected.finished_at" :enabled="data?.config?.enabled !== false" />
+        <div v-if="current?.guard_admitted" class="col-sm-6"><h6>Сеть Guard</h6><PresenceStatus :value="current?.guard" channel="guard" :stale="stale" :finished="!!selected.finished_at" :enabled="data?.config?.enabled !== false" />
           <p v-if="current?.guard?.bound" class="small text-muted mb-0">Проверка Guard: {{ fmt(current.guard.checked_at) || 'ожидается' }}. {{ reasons[current.guard.reason] || '' }}</p>
         </div>
       </div>
-      <details v-if="!selected.finished_at && data?.config?.enabled !== false" class="border rounded p-3 mb-3" @toggle="bindingToggle">
+      <details v-if="!selected.finished_at && data?.config?.require_guard && data.config.enabled !== false" class="border rounded p-3 mb-3" @toggle="bindingToggle">
         <summary class="fw-semibold">Подтвердить устройство ученика</summary>
         <p class="small text-muted mt-2">Сначала привяжите устройство к этому ученику в <a href="https://guard.geekclass.ru" target="_blank" rel="noopener">Guard</a>. Затем сверьте код на экране теста и выберите именно это устройство.</p>
         <button class="btn btn-sm btn-outline-secondary mb-2" :disabled="candidateLoading" @click="loadCandidates">{{ candidateLoading ? 'Загрузка…' : 'Обновить устройства' }}</button>
@@ -92,27 +104,64 @@ import { computed, nextTick, ref, watch } from 'vue'
 import api from '../api'
 import PresenceStatus from './PresenceStatus.vue'
 import { formatDateTime as fmt } from '../utils/dates'
-const props = defineProps({ testId: [String, Number], data: Object, stale: Boolean, error: String })
+const props = defineProps({ testId: [String, Number], data: Object, stale: Boolean, error: String, settingsOnly: Boolean })
 const emit = defineEmits(['refresh'])
-const settings = ref(false), rooms = ref([]), roomId = ref(null), enabled = ref(true), dirty = ref(false), draftVersion = ref(0), saving = ref(false), actionError = ref('')
+const settings = ref(props.settingsOnly), rooms = ref([]), roomId = ref(null), enabled = ref(true), requireGuard = ref(false)
+const dirty = ref(false), draftVersion = ref(0), saving = ref(false), actionError = ref('')
 const dialog = ref(null), selected = ref(null), events = ref([]), historyLoading = ref(false), historyError = ref(''), notes = ref({}), reviewing = ref(null)
 const candidates = ref([]), candidateError = ref(''), candidateLoading = ref(false), sessionId = ref(''), clientId = ref(''), confirmed = ref(false), binding = ref(false)
-const titles = { device_mismatch: 'Попытка открыта с другого устройства', exam_disconnected: 'GeekExam перестал получать ответы о связи', device_disconnected: 'Устройство отсутствует в сети Guard', binding_confirmed: 'Устройство подтверждено преподавателем', binding_changed: 'Привязка устройства изменена', guard_source_lost: 'Нет связи с роутером или агентом', guard_service_unavailable: 'Нет связи с сервисом Guard', mass_disconnect: 'Массовое отключение устройств' }
+const titles = { device_mismatch: 'Попытка открыта с другого устройства', exam_disconnected: 'GeekExam перестал получать ответы о связи', device_disconnected: 'Устройство отсутствует в сети Guard', binding_confirmed: 'Устройство подтверждено', binding_changed: 'Привязка устройства изменена', guard_source_lost: 'Нет связи с роутером или агентом', guard_service_unavailable: 'Нет связи с сервисом Guard', mass_disconnect: 'Массовое отключение устройств' }
 const reasons = { binding_expired: 'Сетевая сессия истекла: нужна новая привязка.', binding_revoked: 'Сетевая привязка снята.', connection_changed: 'Сетевая сессия изменилась: проверьте устройство.', agent_restarted: 'Агент перезапущен: нужна новая привязка.', agent_not_reporting: 'Агент не передаёт данные.', access_denied: 'У Guard нет действующего разрешения для этого кабинета.', guard_unavailable: 'Сервис Guard не отвечает.' }
 const current = computed(() => props.data?.attempts?.find(a => a.attempt_id === selected.value?.id))
 const roomName = computed(() => props.data?.config?.room_name || rooms.value.find(r => r.id === props.data?.config?.room_id)?.name || 'выбран')
-const openClassroomEvents = computed(() => (props.data?.classroom_events || []).filter(e => !e.ended_at && e.kind !== 'mass_disconnect').slice(0, 3))
-watch(() => props.data?.config, config => { if (config && !dirty.value) { roomId.value = config.room_id; enabled.value = config.enabled; draftVersion.value = config.version } }, { immediate: true })
+const openClassroomEvents = computed(() => props.data?.config?.require_guard && !props.settingsOnly
+  ? (props.data.classroom_events || []).filter(e => !e.ended_at && e.kind !== 'mass_disconnect').slice(0, 3)
+  : [])
+function applyConfig(config) {
+  roomId.value = config.room_id
+  enabled.value = config.enabled
+  requireGuard.value = config.require_guard
+  draftVersion.value = config.version
+}
+watch(() => props.data?.config, config => {
+  if (!config || dirty.value) return
+  const wasRequired = requireGuard.value
+  applyConfig(config)
+  if (settings.value && requireGuard.value && !wasRequired && props.data.guard_configured) loadRooms()
+}, { immediate: true })
 watch(() => props.data, () => { if (selected.value) loadHistory() })
 async function loadRooms() { try { rooms.value = (await api.getPresenceRooms()).data.items; actionError.value = '' } catch { actionError.value = 'Нет связи с Guard или нет доступа к кабинетам. Изменения не отправлены.' } }
-function toggleSettings() { settings.value = !settings.value; if (settings.value && props.data?.guard_configured) loadRooms() }
+function toggleSettings() { settings.value = !settings.value; if (settings.value && requireGuard.value && props.data?.guard_configured) loadRooms() }
+function changeGuardRequirement() {
+  dirty.value = true
+  actionError.value = ''
+  if (requireGuard.value && props.data?.guard_configured) loadRooms()
+}
 async function saveConfig() {
   saving.value = true; actionError.value = ''
-  try { await api.configurePresence(props.testId, { version: draftVersion.value, enabled: enabled.value, room_id: roomId.value }); dirty.value = false; emit('refresh') }
+  try {
+    const { data } = await api.configurePresence(props.testId, {
+      version: draftVersion.value, enabled: enabled.value, room_id: roomId.value, require_guard: requireGuard.value,
+    })
+    applyConfig(data.config)
+    dirty.value = false
+    emit('refresh')
+  }
   catch (e) { actionError.value = e?.response?.data?.error || 'Не удалось сохранить настройки. Изменение ожидает повторной отправки.' }
   finally { saving.value = false }
 }
-async function open(attempt) { selected.value = attempt; events.value = []; candidates.value = []; candidateError.value = ''; sessionId.value = clientId.value = ''; confirmed.value = false; await nextTick(); dialog.value.showModal(); loadHistory() }
+async function open(attempt) {
+  if (!props.data?.attempts?.some(row => row.attempt_id === attempt.id && row.guard_admitted)) return
+  selected.value = attempt
+  events.value = []
+  candidates.value = []
+  candidateError.value = ''
+  sessionId.value = clientId.value = ''
+  confirmed.value = false
+  await nextTick()
+  dialog.value.showModal()
+  loadHistory()
+}
 function backdropClose(event) { if (event.target === dialog.value) { const box = dialog.value.getBoundingClientRect(); if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) dialog.value.close() } }
 async function loadHistory() {
   if (historyLoading.value || !selected.value) return

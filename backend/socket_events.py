@@ -4,6 +4,7 @@ from flask import session
 from flask_socketio import join_room
 
 from models import db, Attempt, Test
+from guard_admission import attempt_access_allowed
 
 
 def publish_attempt_change(attempt):
@@ -39,6 +40,8 @@ def register_socket_handlers(socketio):
             return {'error': 'Forbidden'}
         attempt = db.session.get(Attempt, int(match.group(1)))
         if not attempt or (attempt.user_id != user_id and session.get('role') not in ('teacher', 'admin')):
+            return {'error': 'Forbidden'}
+        if session.get('role') not in ('teacher', 'admin') and not attempt_access_allowed(attempt):
             return {'error': 'Forbidden'}
         join_room(room)
         return {'status': 'joined'}

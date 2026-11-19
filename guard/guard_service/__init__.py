@@ -5,7 +5,7 @@ from urllib.parse import urlsplit
 
 from flask import Flask, jsonify, send_from_directory
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import event
+from sqlalchemy import event, inspect
 from sqlalchemy.orm.exc import StaleDataError
 from werkzeug.exceptions import HTTPException
 
@@ -130,6 +130,9 @@ def create_app(settings=None):
         with db.engine.begin() as connection:
             LocalProofEndpoint.__table__.create(connection,checkfirst=True)
             BrowserProof.__table__.create(connection,checkfirst=True)
+            columns = inspect(connection).get_columns(BrowserProof.__tablename__)
+            if not any(column['name'] == 'scope' for column in columns):
+                connection.execute(db.text("ALTER TABLE browser_proof ADD COLUMN scope VARCHAR(24) NOT NULL DEFAULT 'attempt'"))
         print('Browser proof schema ready (additive only)')
 
     @app.cli.command('upgrade-network-login-schema')

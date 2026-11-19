@@ -48,6 +48,16 @@ def event(test_id,key,kind,at,*,attempt_id=None,router_id=None,last_confirmed=No
     return row
 
 
+def guard_admission_event():
+    # Strict test admission uses a test-scoped proof, before any attempt client is registered.
+    return db.and_(
+        PresenceEvent.kind == 'binding_confirmed',
+        PresenceEvent.details['method'].as_string() == 'browser_lan_proof',
+        PresenceEvent.details['proof_id'].as_string().is_not(None),
+        PresenceEvent.details['client_code'].as_string().is_(None),
+    )
+
+
 def exam_status(attempt,at):
     clients=db.session.execute(db.select(PresenceClient).where(PresenceClient.attempt_id==attempt.id)).scalars().all()
     last=max((client.last_seen_at for client in clients),default=None)
@@ -72,6 +82,16 @@ def update_review_evidence(attempt):
             row.exam_continued_at=heartbeat.received_at
             row.review_required=True
             row.details={**row.details,'evidence_client_id':heartbeat.client_id,'evidence_sequence':heartbeat.sequence}
+
+
+def close_guard_gaps(attempt):
+    for gap in db.session.execute(db.select(PresenceEvent).where(
+        PresenceEvent.attempt_id == attempt.id, PresenceEvent.kind == 'device_disconnected',
+        PresenceEvent.ended_at.is_(None),
+    )).scalars():
+        gap.ended_at = now()
+        gap.details = {**gap.details, 'closed_by': 'binding_changed'}
+    update_review_evidence(attempt)
 
 
 def update_exam_gaps(attempt,at):
@@ -173,7 +193,8 @@ def mark_guard_unavailable(config,attempts,reason,at):
 
 
 def collect_test(config):
-    version,room_id,actor_id=config.version,config.guard_room_id,config.configured_by
+    version, actor_id = config.version, config.configured_by
+    room_id = config.guard_room_id if config.require_guard else None
     # Briefly reconcile historical observations at submission, without accepting
     # any new browser contact or events after the attempt's finish timestamp.
     active=db.or_(Attempt.finished_at.is_(None),Attempt.finished_at>=now()-timedelta(seconds=60))
@@ -235,29 +256,45 @@ def event_view(row):
         'review_note':row.review_note,'details':row.details}
 
 
+def settings_view(config):
+    return {'guard_configured': guard_client.configured(),
+            'config': {'enabled': config.enabled if config else True,
+                       'require_guard': bool(config and config.require_guard),
+                       'room_id': config.guard_room_id if config else None,
+                       'room_name': config.guard_room_name if config else None,
+                       'version': config.version if config else 0}}
+
+
 def snapshot(test):
     at=now();config=db.session.get(PresenceConfig,test.id)
     attempts=db.session.execute(db.select(Attempt).where(Attempt.test_id==test.id)).scalars().all()
     rows={row.attempt_id:row for row in db.session.execute(db.select(AttemptPresence).where(AttemptPresence.attempt_id.in_([a.id for a in attempts]))).scalars()}
     events=db.session.execute(db.select(PresenceEvent).where(PresenceEvent.test_id==test.id,
         PresenceEvent.attempt_id.is_(None)).order_by(PresenceEvent.started_at.desc()).limit(50)).scalars().all()
-    counts={row[0]:(row[1],row[2]) for row in db.session.execute(db.select(PresenceEvent.attempt_id,
-        db.func.count(),db.func.sum(db.case((db.and_(PresenceEvent.review_required.is_(True),PresenceEvent.reviewed_at.is_(None)),1),else_=0)))
-        .where(PresenceEvent.test_id==test.id).group_by(PresenceEvent.attempt_id))}
+    awaiting_review = db.and_(PresenceEvent.review_required.is_(True), PresenceEvent.reviewed_at.is_(None))
+    counts = {
+        attempt_id: (total, reviews, guard_admitted)
+        for attempt_id, total, reviews, guard_admitted in db.session.execute(
+            db.select(
+                PresenceEvent.attempt_id, db.func.count(),
+                db.func.sum(db.case((awaiting_review, 1), else_=0)),
+                db.func.max(db.case((guard_admission_event(), 1), else_=0)),
+            ).where(PresenceEvent.test_id == test.id, PresenceEvent.attempt_id.is_not(None))
+            .group_by(PresenceEvent.attempt_id)
+        )
+    }
     result=[]
     for attempt in attempts:
         state=rows.get(attempt.id);exam=exam_status(attempt,at)
-        total,reviews=counts.get(attempt.id,(0,0))
+        total, reviews, guard_admitted = counts.get(attempt.id, (0, 0, 0))
         current=state.guard_state if state else 'unbound'
         if state and state.guard_checked_at and at-state.guard_checked_at>timedelta(seconds=GUARD_TTL) and not attempt.finished_at:current='unknown'
-        result.append({'attempt_id':attempt.id,'exam':exam,'guard':{'state':current,
+        result.append({'attempt_id':attempt.id,'guard_admitted':bool(guard_admitted),'exam':exam,'guard':{'state':current,
             'reason':state.guard_reason if state else None,'since':utc_iso(state.guard_since) if state else None,
             'last_confirmed_at':utc_iso(state.guard_last_confirmed_at) if state else None,
             'checked_at':utc_iso(state.guard_checked_at) if state else None,
             'bound':bool(state and state.guard_session_id),'history_complete':state.history_complete if state else True,
             'binding_confirmed_at':utc_iso(state.binding_confirmed_at) if state else None},
             'review_count':reviews or 0,'event_count':total})
-    return {'server_time':utc_iso(at),'heartbeat_ttl_seconds':HEARTBEAT_TTL,'guard_configured':guard_client.configured(),
-            'config':{'enabled':config.enabled if config else True,'room_id':config.guard_room_id if config else None,
-                      'room_name':config.guard_room_name if config else None,'version':config.version if config else 0},
+    return {'server_time':utc_iso(at),'heartbeat_ttl_seconds':HEARTBEAT_TTL,**settings_view(config),
             'attempts':result,'classroom_events':[event_view(row) for row in events if row.attempt_id is None]}

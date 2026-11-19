@@ -1,23 +1,32 @@
 // Local calls carry only an opaque single-use token; never login cookies or IP claims.
+export async function sendLocalProof(item, { fetchLocal = fetch, signal } = {}) {
+  const url = new URL(item.url)
+  if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/v1/browser-proof' || url.search || url.hash) {
+    throw Error('invalid_endpoint')
+  }
+  let confirmed = false
+  try {
+    const response = await fetchLocal(url.href, {
+      method: 'POST', mode: 'cors', credentials: 'omit', cache: 'no-store', redirect: 'error',
+      referrerPolicy: 'no-referrer', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: item.token }), signal,
+    })
+    confirmed = response.ok
+  } catch { /* A lost response does not mean the agent failed to prove the request. */ }
+  return { id: item.id, confirmed }
+}
+
 export function createAutoDeviceBinding({ start, finish, fetchLocal = fetch, onChange = () => {},
   schedule = setTimeout, cancel = clearTimeout, abortController = () => new AbortController(), now = Date.now }) {
   let stopped = false, busy = false, retry, controllers = new Set(), credentials, bound = false
   let round, roundExpires = 0, failures = 0
   async function prove(item) {
-    const url = new URL(item.url)
-    if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/v1/browser-proof' || url.search || url.hash) throw Error('invalid_endpoint')
     const control = abortController(); controllers.add(control)
     const timeout = schedule(() => control.abort(),12000)
     try {
-      let confirmed = false
-      try {
-        const response = await fetchLocal(url.href,{method:'POST',mode:'cors',credentials:'omit',cache:'no-store',redirect:'error',
-          referrerPolicy:'no-referrer',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:item.token}),
-          signal:control.signal})
-        confirmed = response.ok
-      } catch { /* The agent may have proved the request even if its response was lost. */ }
+      const result = await sendLocalProof(item, { fetchLocal, signal: control.signal })
       if (stopped) throw Error('stopped')
-      return {id:item.id,confirmed}
+      return result
     } finally { cancel(timeout); controllers.delete(control) }
   }
   async function run() {

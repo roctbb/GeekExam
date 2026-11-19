@@ -6,8 +6,8 @@ from models import db, Attempt, Test
 from presence_models import PresenceConfig, AttemptPresence
 from .presence import presence_bp, body, valid_client
 import guard_client
+from guard_admission import admission_error, attempt_access_allowed, confirmed_evidence, requires_guard
 import presence_service as service
-from time_utils import utc_iso
 
 
 def context(attempt_id, data):
@@ -16,6 +16,8 @@ def context(attempt_id, data):
         abort(403)
     if attempt.finished_at:
         abort(410)
+    if not attempt_access_allowed(attempt):
+        abort(admission_error())
     client = valid_client(attempt,data)
     if (service.now()-client.last_seen_at).total_seconds() > service.HEARTBEAT_TTL:
         abort(409)
@@ -28,12 +30,13 @@ def context(attempt_id, data):
 def start(attempt_id):
     data = body({'client_id','token'})
     attempt,client,config = context(attempt_id,data)
-    if not config or not config.enabled or not config.guard_room_id:
+    if not requires_guard(config) or not config.enabled or not config.guard_room_id:
         return jsonify(state='disabled',reason='room_not_configured',items=[])
     state = db.session.get(AttemptPresence,attempt_id)
     if state and state.guard_session_id and state.bound_client_id == client.id:
         return jsonify(state='bound',items=[])
-    payload = {'room_id':config.guard_room_id,'user_id':attempt.user_id,'attempt_id':attempt.id,'client_id':client.id}
+    payload = {'room_id':config.guard_room_id,'user_id':attempt.user_id,'attempt_id':attempt.id,
+               'client_id':client.id,'require_authorized':True}
     actor_id = config.configured_by
     # Proof network IO must never hold an attempt lock or delay answer saving.
     db.session.rollback()
@@ -50,31 +53,27 @@ def finish(attempt_id):
     if not isinstance(data.get('proof_id'),str) or len(data['proof_id']) > 36:
         abort(422)
     attempt,client,config = context(attempt_id,data)
-    if not config or not config.enabled or not config.guard_room_id:
+    if not requires_guard(config) or not config.enabled or not config.guard_room_id:
         abort(409)
     test_id,room_id,version,actor_id = attempt.test_id,config.guard_room_id,config.version,config.configured_by
     user_id,client_id = attempt.user_id,client.id
     db.session.rollback()
     try:
         candidate = guard_client.call('proofs/consume',actor_id,room_id=room_id,user_id=user_id,
-            attempt_id=attempt_id,client_id=client_id,proof_id=data['proof_id'])
+            attempt_id=attempt_id,client_id=client_id,proof_id=data['proof_id'],require_authorized=True)
     except guard_client.GuardUnavailable:
         return jsonify(state='unavailable',error='Сетевое подтверждение не получено. Привязка не изменена.'),409
-    if candidate.get('user_id') != user_id or candidate.get('method') != 'browser_lan_proof':
+    evidence = confirmed_evidence(candidate, user_id)
+    if not evidence:
         abort(409)
-    observed = service.parse(candidate.get('last_confirmed_at'))
-    proved = service.parse(candidate.get('proved_at'))
-    if not observed or not proved or not 0 <= (service.now()-observed).total_seconds() <= service.GUARD_TTL or not 0 <= (service.now()-proved).total_seconds() <= 45:
-        abort(409)
-    if any(not isinstance(candidate.get(key),str) or not 1 <= len(candidate[key]) <= 36 for key in ['session_id','device_id','router_id']):
-        abort(409)
+    observed, proved = evidence
     db.session.execute(db.select(Test).where(Test.id==test_id).with_for_update()).scalar_one()
     db.session.expire_all()
     attempt = db.session.execute(db.select(Attempt).where(Attempt.id==attempt_id).with_for_update()).scalar_one()
     config = db.session.get(PresenceConfig,test_id)
     if attempt.finished_at:
         abort(410)
-    if not config.enabled or config.version != version or config.guard_room_id != room_id:
+    if not requires_guard(config) or not config.enabled or config.version != version or config.guard_room_id != room_id:
         abort(409)
     state = service.ensure_attempt(attempt)
     if state.guard_session_id:

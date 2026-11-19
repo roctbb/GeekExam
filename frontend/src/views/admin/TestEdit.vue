@@ -76,8 +76,8 @@
           <div v-if="!draft.variants.length" class="text-muted">Вариантов нет. Добавьте вариант.</div>
 
           <div v-for="(variant, variantIndex) in draft.variants" :key="variant.localId" class="border rounded p-3 mb-3">
-            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-              <div class="w-100 me-3">
+            <div class="d-flex align-items-end gap-2 mb-3">
+              <div class="flex-grow-1">
                 <label class="form-label mb-1">Название варианта</label>
                 <input
                   v-model="variant.title"
@@ -86,7 +86,7 @@
                   :placeholder="`Вариант ${variantIndex + 1}`"
                 />
               </div>
-              <button class="btn btn-outline-danger btn-sm mt-4" :disabled="hasAttempts" @click="removeVariant(variantIndex)"><AppIcon name="delete" />Удалить вариант</button>
+              <IconAction icon="delete" label="Удалить вариант" tone="danger" :disabled="hasAttempts" @click="removeVariant(variantIndex)" />
             </div>
 
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
@@ -103,7 +103,7 @@
             >
               <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
                 <strong>Вопрос {{ questionIndex + 1 }}</strong>
-                <button class="btn btn-outline-danger btn-sm" :disabled="hasAttempts" @click="removeQuestion(variantIndex, questionIndex)"><AppIcon name="delete" />Удалить</button>
+                <IconAction icon="delete" label="Удалить вопрос" tone="danger" :disabled="hasAttempts" @click="removeQuestion(variantIndex, questionIndex)" />
               </div>
 
               <div class="card-body">

@@ -13,6 +13,7 @@ from auth import api_login_required, teacher_required, current_role, current_use
 from models import db, Answer, Question
 from execution_models import ExecutionRun, ExecutionUpload, ExecutionTaskFile
 from attempt_lifecycle import lock_answer, finish_if_expired
+from guard_admission import admission_error, attempt_access_allowed
 import executor_service as service
 import executor_transport as transport
 
@@ -99,7 +100,11 @@ def execution_artifact(digest):
 
 def owned_answer(answer_id):
     answer = db.get_or_404(Answer, answer_id)
-    if current_role() not in ('teacher', 'admin') and answer.attempt.user_id != current_user_id(): abort(403)
+    if current_role() not in ('teacher', 'admin'):
+        if answer.attempt.user_id != current_user_id():
+            abort(403)
+        if not attempt_access_allowed(answer.attempt):
+            abort(admission_error())
     return answer
 
 
@@ -161,6 +166,7 @@ def upload_answer_file(answer_id):
     answer, attempt = lock_answer(answer_id)
     if not answer: abort(404)
     if attempt.user_id != current_user_id(): abort(403)
+    if not attempt_access_allowed(attempt): return admission_error()
     if attempt.finished_at or finish_if_expired(attempt): abort(409)
     if ExecutionUpload.query.filter_by(answer_id=answer.id).count() >= 200: abort(422, 'Too many uploaded files')
     file = request.files.get('file')
@@ -183,6 +189,7 @@ def answer_file(answer_id, file_id):
     if request.method == 'DELETE':
         answer, attempt = lock_answer(answer_id)
         if attempt.user_id != current_user_id(): abort(403)
+        if not attempt_access_allowed(attempt): return admission_error()
         if attempt.finished_at or finish_if_expired(attempt): abort(409)
         value = answer.value if isinstance(answer.value, dict) else {}
         selected = value.get('files', [])
@@ -243,6 +250,7 @@ def attempt_files(attempt_id, question_id):
     if question.variant_id != attempt.variant_id: abort(404)
     teacher = current_role() in ('teacher', 'admin')
     if attempt.user_id != current_user_id() and not teacher: abort(403)
+    if not teacher and not attempt_access_allowed(attempt): return admission_error()
     query = ExecutionTaskFile.query.filter_by(question_id=question_id, deleted_at=None)
     if not teacher: query = query.filter_by(is_public=True)
     return jsonify(items=[dict(id=row.id, path=row.name, kind=row.kind, read_only=row.read_only,
@@ -258,6 +266,7 @@ def attempt_file(attempt_id, question_id, file_id):
     teacher = current_role() in ('teacher', 'admin')
     if question.variant_id != attempt.variant_id: abort(404)
     if attempt.user_id != current_user_id() and not teacher: abort(403)
+    if not teacher and not attempt_access_allowed(attempt): return admission_error()
     file = ExecutionTaskFile.query.filter_by(question_id=question_id, id=file_id, deleted_at=None).first_or_404()
     if not file.is_public and not teacher: abort(403)
     return send_file(transport.artifact_path(file.artifact['blob_id']), as_attachment=True,

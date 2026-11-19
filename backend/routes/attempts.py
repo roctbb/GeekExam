@@ -11,6 +11,8 @@ from auth import api_login_required, teacher_required, current_user_id, current_
 from models import db, Test, Attempt, Answer, Variant
 from checkers.check_types.exact import normalize_text
 from attempt_lifecycle import finish_locked_attempt
+from presence_models import PresenceConfig
+import guard_admission as guard
 
 attempts_bp = Blueprint('attempts', __name__)
 
@@ -173,6 +175,7 @@ def _attempt_detail(attempt, include_check_config=False):
         'test_id': attempt.test_id,
         'test_title': attempt.test.title,
         'variant_id': attempt.variant_id,
+        'guard_required': guard.requires_guard(db.session.get(PresenceConfig, attempt.test_id)),
         'started_at': utc_iso(attempt.started_at),
         'finished_at': utc_iso(attempt.finished_at),
         'is_checked': attempt.is_checked,
@@ -202,8 +205,9 @@ def _attempt_detail(attempt, include_check_config=False):
 @attempts_bp.route('/api/join', methods=['POST'])
 @api_login_required
 def join_test():
-    data = request.get_json()
-    code = (data.get('code') or '').strip().upper()
+    data = request.get_json(silent=True)
+    code = data.get('code') if isinstance(data, dict) else None
+    code = code.strip().upper() if isinstance(code, str) else ''
     if not code:
         return jsonify({'error': 'Введите код теста'}), 422
 
@@ -216,8 +220,30 @@ def join_test():
     user_id = current_user_id()
     # One attempt per test per student
     existing = Attempt.query.filter_by(test_id=test.id, user_id=user_id).first()
-    if existing:
+    config = db.session.get(PresenceConfig, test.id)
+    if existing and (existing.finished_at or not guard.requires_guard(config)):
         return jsonify({'error': 'Вы уже проходили этот тест', 'attempt_id': existing.id}), 422
+
+    admission = None
+    if guard.requires_guard(config):
+        admission = guard.Admission.for_test(test, config, user_id)
+        if 'guard_ticket' not in data and 'proof_ids' not in data:
+            return guard.start_proof(admission)
+        candidate, proof_id = guard.consume_proof(admission, data.get('guard_ticket'), data.get('proof_ids'))
+        test = Test.query.filter_by(id=admission.test_id, code=code, is_active=True).with_for_update().first()
+        if not test:
+            return jsonify(error='Тест не найден или не активен'), 404
+        config = db.session.get(PresenceConfig, test.id)
+        if not guard.requires_guard(config) or guard.Admission.for_test(test, config, user_id) != admission:
+            return guard.admission_error('Настройки доступа изменились. Войдите в тест ещё раз.', 409)
+        existing = Attempt.query.filter_by(test_id=test.id, user_id=user_id).with_for_update().first()
+        if existing:
+            if existing.finished_at:
+                return jsonify(error='Вы уже проходили этот тест', attempt_id=existing.id), 422
+            guard.record_binding(existing, admission, candidate, proof_id)
+            db.session.commit()
+            guard.remember_admission(existing, admission, candidate)
+            return jsonify(attempt_id=existing.id)
 
     available = test.variants
     if not available or any(not variant.questions for variant in available):
@@ -239,11 +265,15 @@ def join_test():
         db.session.add(Answer(attempt_id=attempt.id, question_id=q.id))
 
     try:
+        if admission:
+            guard.record_binding(attempt, admission, candidate, proof_id)
         db.session.commit()
     except IntegrityError:
         db.session.rollback()
         return jsonify({'error': 'Вы уже проходите этот вариант'}), 422
 
+    if admission:
+        guard.remember_admission(attempt, admission, candidate)
     from socket_events import publish_attempt_change
     publish_attempt_change(attempt)
     return jsonify({'attempt_id': attempt.id}), 201
@@ -268,6 +298,8 @@ def get_attempt(attempt_id):
     role = current_role()
     if role not in ('teacher', 'admin') and attempt.user_id != user_id:
         return jsonify({'error': 'Forbidden'}), 403
+    if role not in ('teacher', 'admin') and not guard.attempt_access_allowed(attempt):
+        return guard.admission_error()
     return jsonify(_attempt_detail(attempt, include_check_config=role in ('teacher', 'admin')))
 
 
@@ -277,6 +309,8 @@ def finish_attempt(attempt_id):
     attempt = Attempt.query.filter_by(id=attempt_id).with_for_update().first_or_404()
     if attempt.user_id != current_user_id():
         return jsonify({'error': 'Forbidden'}), 403
+    if not guard.attempt_access_allowed(attempt):
+        return guard.admission_error()
 
     if not finish_locked_attempt(attempt):
         return jsonify({'error': 'Тест уже завершён'}), 422

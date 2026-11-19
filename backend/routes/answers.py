@@ -6,6 +6,7 @@ from attempt_lifecycle import lock_answer, finish_if_expired
 from validation import validate_answer
 from answer_limits import REQUEST_LIMIT, validate_answer_size
 from checkers.scoring import score_step, valid_points
+from guard_admission import admission_error, attempt_access_allowed
 
 answers_bp = Blueprint('answers', __name__)
 
@@ -45,6 +46,8 @@ def save_answer(answer_id):
     answer, attempt = _locked_answer(answer_id)
     if attempt.user_id != current_user_id():
         return jsonify({'error': 'Forbidden'}), 403
+    if not attempt_access_allowed(attempt):
+        return admission_error()
     if attempt.finished_at or finish_if_expired(attempt):
         return jsonify({'error': 'Тест уже завершён', 'error_code': 'attempt_finished'}), 422
 
@@ -73,6 +76,8 @@ def intermediate_check(answer_id):
     answer, attempt = _locked_answer(answer_id)
     if attempt.user_id != current_user_id():
         return jsonify({'error': 'Forbidden'}), 403
+    if not attempt_access_allowed(attempt):
+        return admission_error()
     if attempt.finished_at or finish_if_expired(attempt):
         return jsonify({'error': 'Тест уже завершён', 'error_code': 'attempt_finished'}), 422
     if not answer.question.allow_intermediate_check:

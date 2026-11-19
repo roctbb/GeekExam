@@ -1,6 +1,7 @@
+from datetime import timedelta
 import pytest
 
-from guard_service.models import db, DeviceOverride, LocalProofEndpoint, NetworkLogin, Room, Router, User
+from guard_service.models import db, Device, DeviceOverride, LocalProofEndpoint, NetworkLogin, NetworkSession, Room, Router, User
 from conftest import observation
 
 
@@ -37,6 +38,21 @@ def test_portal_assigns_actual_role_and_owner(app,login,enroll,user_id,role):
     assert state['device']['binding_method']=='codingprojects_portal'
     other=login(5 if user_id!=5 else 4)
     assert other.get('/api/v1/network-login/'+proof.json['id']).status_code==404
+
+
+def test_portal_authentication_upgrades_an_existing_exam_only_binding(app, login, enroll):
+    agent, headers = prepare(app, enroll)
+    with app.app_context():
+        device = Device.query.filter_by(router_id='router-a').one()
+        db.session.add(NetworkSession(device_id=device.id, user_id=4, boot_id='boot-one', epoch=device.epoch,
+            expires_at=app.clock() + timedelta(hours=1), method='browser_lan_proof', created_by=2))
+        db.session.commit()
+    client = login(4)
+    proof = begin(client).json
+    assert complete(agent, headers, proof['token']).status_code == 200
+    assert client.get('/api/v1/network-login/' + proof['id']).json['device']['binding_method'] == 'codingprojects_portal'
+    with app.app_context():
+        assert NetworkSession.query.count() == 1
 
 
 def test_restricted_student_and_admin_device_exception(app,login,enroll):

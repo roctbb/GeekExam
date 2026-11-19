@@ -9,10 +9,12 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import AppIcon from './components/AppIcon.vue'
+import IconAction from './components/IconAction.vue'
 
 config.autoAddCss = false
 const app = createApp(App)
 app.component('AppIcon', AppIcon)
+app.component('IconAction', IconAction)
 app.use(createPinia())
 app.use(router)
 app.mount('#app')

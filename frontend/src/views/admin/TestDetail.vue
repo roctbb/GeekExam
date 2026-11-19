@@ -7,10 +7,10 @@
       <div class="d-flex gap-2 flex-wrap">
         <button v-if="!test.is_active" class="btn btn-success btn-sm" :disabled="!!pending || !test.code" @click="activate"><AppIcon name="play" />Запустить</button>
         <button v-else class="btn btn-warning btn-sm" :disabled="!!pending" @click="deactivate"><AppIcon name="stop" />Остановить</button>
-        <RouterLink :to="`/admin/tests/${test.id}/preview`" class="btn btn-outline-primary btn-sm"><AppIcon name="preview" />Просмотр как ученик</RouterLink>
-        <RouterLink :to="`/admin/tests/${test.id}/edit`" class="btn btn-outline-secondary btn-sm"><AppIcon name="edit" />Редактировать</RouterLink>
+        <IconAction icon="preview" label="Просмотр как ученик" tone="primary" :to="`/admin/tests/${test.id}/preview`" />
+        <IconAction icon="edit" label="Редактировать" :to="`/admin/tests/${test.id}/edit`" />
         <RouterLink :to="`/admin/tests/${test.id}/results`" class="btn btn-outline-primary btn-sm"><AppIcon name="results" />Результаты</RouterLink>
-        <button class="btn btn-outline-danger btn-sm" :disabled="!!pending" @click="removeTest"><AppIcon name="delete" />Удалить</button>
+        <IconAction icon="delete" label="Удалить" tone="danger" :disabled="!!pending" :busy="pending === 'delete'" @click="removeTest" />
       </div>
     </div>
     <div class="card mb-4">
@@ -30,6 +30,8 @@
         <button v-if="test.time_limit != null" class="btn btn-outline-primary btn-sm" :disabled="!!pending" @click="extendTime">+15 минут</button>
       </div>
     </div>
+    <ExamMonitoring :test-id="test.id" :data="guardSettings" :error="guardSettingsError"
+      settings-only @refresh="loadGuardSettings" />
     <div v-for="v in test.variants" :key="v.id" class="mb-4">
       <h6 class="fw-bold mb-2">{{ v.title }}</h6>
       <div class="table-responsive">
@@ -60,9 +62,11 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../../api'
 import MarkdownBody from '../../components/MarkdownBody.vue'
+import ExamMonitoring from '../../components/ExamMonitoring.vue'
 const route = useRoute()
 const router = useRouter()
 const test = ref(null), newCode = ref('')
+const guardSettings = ref(null), guardSettingsError = ref('')
 const pending = ref(''), error = ref(''), success = ref('')
 async function loadTest() {
   error.value = ''
@@ -73,6 +77,16 @@ async function loadTest() {
   } catch { error.value = 'Не удалось загрузить тест. Проверьте соединение и повторите.' }
 }
 onMounted(loadTest)
+onMounted(loadGuardSettings)
+async function loadGuardSettings() {
+  guardSettingsError.value = ''
+  try {
+    const { data } = await api.getPresenceSettings(route.params.id)
+    guardSettings.value = data
+  } catch {
+    guardSettingsError.value = 'Не удалось загрузить настройки доступа.'
+  }
+}
 async function runAction(name, action, message) {
   if (pending.value) return
   pending.value = name

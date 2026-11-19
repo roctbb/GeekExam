@@ -21,7 +21,7 @@
         <CodeEditor v-if="mode === 'code'" :readonly="readonly" :model-value="value.code ?? question.ui_config?.starter_code ?? ''" :language="language" label="Код решения" @update:model-value="patch({code:$event,lang:language,mode:'code'})" />
         <div v-if="mode === 'project'">
           <div v-for="(file,index) in editorFiles" :key="index" class="mb-3">
-            <div class="d-flex gap-2 mb-2"><input class="form-control" aria-label="Путь файла" :value="file.path" @input="editFile(index,{path:$event.target.value})" /><button type="button" class="btn btn-outline-danger btn-sm" @click="removeEditor(index)">Убрать</button></div>
+            <div class="d-flex gap-2 mb-2"><input class="form-control" aria-label="Путь файла" :value="file.path" @input="editFile(index,{path:$event.target.value})" /><IconAction icon="delete" :label="file.path ? `Убрать файл ${file.path}` : 'Убрать файл'" tone="danger" @click="removeEditor(index)" /></div>
             <CodeEditor :readonly="readonly" :model-value="file.content" :language="language" :label="file.path || 'Файл кода'" @update:model-value="editFile(index,{content:$event})" />
           </div>
           <button type="button" class="btn btn-outline-secondary btn-sm" @click="addEditor">Добавить файл кода</button>
@@ -31,7 +31,7 @@
           <p v-if="!readonly" class="form-text">До {{ config.max_files || 100 }} файлов, суммарно до {{ Math.round((config.max_total_bytes || 52428800)/1048576) }} МБ. ZIP, код, Excel и изображения — в зависимости от задания.</p>
           <ul class="list-unstyled mb-0"><li v-for="file in selectedFiles" :key="file.upload_id" class="d-flex gap-2 align-items-center flex-wrap my-2">
             <span v-if="preview">{{ file.path }}</span><a v-else :href="`/api/answers/${answerId}/files/${file.upload_id}`" target="_blank" rel="noopener">{{ file.path || uploads[file.upload_id]?.path || 'Файл решения' }}</a>
-            <button v-if="!readonly" class="btn btn-outline-secondary btn-sm" type="button" @click="removeUpload(file.upload_id)">Убрать</button>
+            <IconAction v-if="!readonly" icon="close" :label="file.path ? `Убрать файл ${file.path}` : 'Убрать файл'" @click="removeUpload(file.upload_id)" />
           </li></ul>
         </div>
       </template>

@@ -2,8 +2,11 @@
   <div class="ge-fade-in">
     <div class="ge-page-header">
       <h4>Результаты</h4>
-      <button type="button" class="btn btn-sm btn-outline-secondary" :disabled="refreshing" @click="refresh">Обновить</button>
-      <RouterLink :to="`/admin/tests/${$route.params.id}`" class="btn btn-outline-secondary btn-sm"><AppIcon name="arrow-left" />Назад</RouterLink>
+      <div class="d-flex gap-2">
+        <RouterLink :to="`/admin/tests/${testId}/question-review`" class="btn btn-outline-primary btn-sm"><AppIcon name="results" />Сводка по заданиям</RouterLink>
+        <IconAction icon="retry" label="Обновить" :busy="refreshing" @click="refresh" />
+        <RouterLink :to="`/admin/tests/${testId}`" class="btn btn-outline-secondary btn-sm"><AppIcon name="arrow-left" />Назад</RouterLink>
+      </div>
     </div>
     <div v-if="actionError" class="alert alert-danger" role="alert">{{ actionError }}</div>
     <ExamMonitoring ref="monitorPanel" :test-id="testId" :data="monitor.data.value" :stale="monitor.stale.value" :error="monitor.error.value" @refresh="monitor.refresh" />
@@ -13,29 +16,28 @@
     <div v-if="loading" class="text-center py-4"><div class="spinner-border" /></div>
     <div v-else-if="!error && attempts.length === 0" class="text-center py-5 text-muted">Пока никто не проходил этот тест</div>
     <div v-else-if="attempts.length">
-      <TestQuestionReview :test-id="testId" :groups="results.question_review" />
       <div class="d-flex justify-content-end mb-2 gap-2 flex-wrap">
         <select aria-label="Сортировка результатов" v-model="sortBy" class="form-select form-select-sm" style="width:auto">
           <option value="started_at">Сортировка: по времени</option>
           <option value="user_name">Сортировка: по имени</option>
         </select>
-        <button class="btn btn-sm btn-outline-secondary" @click="toggleSortDir">
-          <AppIcon :name="sortDir === 'asc' ? 'arrow-up' : 'arrow-down'" />{{ sortDir === 'asc' ? 'По возрастанию' : 'По убыванию' }}
-        </button>
+        <IconAction :icon="sortDir === 'asc' ? 'arrow-up' : 'arrow-down'" :label="sortDirectionLabel" @click="toggleSortDir" />
       </div>
       <div class="table-responsive">
       <table class="table table-hover align-middle">
-        <thead><tr><th>Ученик</th><th>Вариант</th><th>GeekExam</th><th>Сеть Guard</th><th>Начало</th><th>Конец</th><th>Результат</th><th></th></tr></thead>
+        <thead><tr><th>Ученик</th><th>Вариант</th><th v-if="showExamColumn">GeekExam</th><th v-if="showGuardColumn">Сеть Guard</th><th>Начало</th><th>Конец</th><th>Результат</th><th aria-label="Действия"></th></tr></thead>
         <tbody>
           <tr v-for="a in sortedAttempts" :key="a.id">
             <td class="fw-semibold">{{ a.user_name }}</td>
             <td>{{ a.variant_title }}</td>
-            <td><PresenceStatus :value="monitor.byAttempt.value[a.id]?.exam" channel="exam" :stale="monitor.stale.value" :finished="!!a.finished_at" :enabled="monitor.data.value?.config?.enabled !== false" /></td>
-            <td>
-              <PresenceStatus :value="monitor.byAttempt.value[a.id]?.guard" channel="guard" :stale="monitor.stale.value" :finished="!!a.finished_at" :enabled="monitor.data.value?.config?.enabled !== false" />
-              <button class="btn btn-sm btn-link p-0 mt-1 text-start" @click="monitorPanel.open(a)">
-                {{ monitor.byAttempt.value[a.id]?.review_count ? `Проверить: ${monitor.byAttempt.value[a.id].review_count}` : 'Журнал связи' }}
-              </button>
+            <td v-if="showExamColumn">
+              <PresenceStatus v-if="isActiveAttempt(a)" :value="monitor.byAttempt.value[a.id]?.exam"
+                channel="exam" :stale="monitor.stale.value" :enabled="monitor.data.value?.config?.enabled !== false" />
+            </td>
+            <td v-if="showGuardColumn">
+              <PresenceStatus v-if="isGuardAttempt(a) || (!a.finished_at && guardRequired)"
+                :value="monitor.byAttempt.value[a.id]?.guard" channel="guard" :stale="monitor.stale.value" :finished="!!a.finished_at" :enabled="monitor.data.value?.config?.enabled !== false" />
+              <span v-else class="text-muted">—</span>
             </td>
             <td class="text-muted small">{{ fmt(a.started_at) }}</td>
             <td class="text-muted small">{{ fmt(a.finished_at) || '—' }}</td>
@@ -45,13 +47,14 @@
               <span v-else class="ge-score">{{ a.total_points }}/{{ a.max_points }}</span>
             </td>
             <td class="text-end">
-              <RouterLink :to="`/admin/attempts/${a.id}`" class="btn btn-sm btn-outline-primary me-1"><AppIcon name="open" />Детали</RouterLink>
-              <button v-if="a.finished_at" class="btn btn-sm btn-outline-secondary me-1" :disabled="isRechecking(a.id)" @click="recheck(a)">
-                <span v-if="isRechecking(a.id)" class="spinner-border spinner-border-sm me-1" />
-                <AppIcon v-else name="retry" />
-                {{ isRechecking(a.id) ? 'Запуск...' : 'Перепроверить' }}
-              </button>
-              <button class="btn btn-sm btn-outline-danger" :disabled="deletingIds.has(a.id)" @click="del(a.id)"><AppIcon name="delete" />Удалить</button>
+              <div class="ge-row-actions">
+                <IconAction v-if="isGuardAttempt(a)" icon="history" :label="journalLabel(a)" aria-haspopup="dialog"
+                  :tone="reviewCount(a) ? 'warning' : 'neutral'" :count="reviewCount(a)" @click="monitorPanel.open(a)" />
+                <IconAction icon="open" label="Детали" tone="primary" :to="`/admin/attempts/${a.id}`" />
+                <IconAction v-if="a.finished_at" icon="retry" :label="isRechecking(a.id) ? 'Запуск перепроверки…' : 'Перепроверить'"
+                  :busy="isRechecking(a.id)" @click="recheck(a)" />
+                <IconAction icon="delete" label="Удалить" tone="danger" :busy="deletingIds.has(a.id)" @click="del(a.id)" />
+              </div>
             </td>
           </tr>
         </tbody>
@@ -65,7 +68,6 @@
 import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import api from '../../api'
-import TestQuestionReview from '../../components/TestQuestionReview.vue'
 import ExamMonitoring from '../../components/ExamMonitoring.vue'
 import PresenceStatus from '../../components/PresenceStatus.vue'
 import { useExamMonitoring } from '../../composables/useExamMonitoring'
@@ -75,19 +77,39 @@ const route = useRoute()
 const testId = route.params.id
 const monitor = useExamMonitoring(testId)
 const monitorPanel = ref(null)
-const { results, loading, refreshing, error, refresh } = useResultList(
-  () => api.getTestResults(testId), `test_${testId}`, { attempts: [], question_review: [] },
+const { results: attempts, loading, refreshing, error, refresh } = useResultList(
+  () => api.getTestAttempts(testId), `test_${testId}`,
 )
-const attempts = computed(() => results.value.attempts)
 const sortBy = ref('started_at')
 const sortDir = ref('desc')
+const sortDirectionLabel = computed(() => sortDir.value === 'asc'
+  ? 'По возрастанию. Переключить на сортировку по убыванию'
+  : 'По убыванию. Переключить на сортировку по возрастанию')
+const showExamColumn = computed(() => attempts.value.some(isActiveAttempt))
+const guardRequired = computed(() => monitor.data.value?.config?.require_guard === true)
+const showGuardColumn = computed(() => guardRequired.value || attempts.value.some(isGuardAttempt))
+
+function isActiveAttempt(attempt) {
+  return !attempt.finished_at && monitor.byAttempt.value[attempt.id]?.exam?.state !== 'finished'
+}
+
+function isGuardAttempt(attempt) {
+  return monitor.byAttempt.value[attempt.id]?.guard_admitted === true
+}
+function reviewCount(attempt) {
+  return monitor.byAttempt.value[attempt.id]?.review_count || 0
+}
+function journalLabel(attempt) {
+  const count = reviewCount(attempt)
+  return count ? `Журнал связи · К проверке ${count}` : 'Журнал связи'
+}
 const recheckingIds = ref(new Set())
 const deletingIds = ref(new Set()), actionError = ref('')
 
 async function del(id) {
   if (deletingIds.value.has(id) || !confirm('Удалить прохождение?')) return
   deletingIds.value.add(id); actionError.value = ''
-  try { await api.deleteAttempt(id); results.value.attempts = attempts.value.filter(a => a.id !== id); await refresh() }
+  try { await api.deleteAttempt(id); attempts.value = attempts.value.filter(a => a.id !== id); await refresh() }
   catch (e) { actionError.value = e?.response?.data?.error || 'Не удалось удалить прохождение. Повторите попытку.' }
   finally { deletingIds.value.delete(id) }
 }
