@@ -162,7 +162,7 @@ def run(config, config_path, *, enforce=False, once=False):
                         last_report = signature
                     except RouterError as exc:
                         cloud_error = str(exc)
-            status = apply_error or source_error or cloud_error or ("ipv4_acl_verified" if verified else "observing")
+            status = apply_error or source_error or cloud_error or ("captive_sessions_verified" if verified and captive else "ipv4_acl_verified" if verified else "observing")
             if status != last_message:
                 print(json.dumps({"status": status, "revision": policy["revision"] if policy else None}, ensure_ascii=False), flush=True)
                 last_message = status

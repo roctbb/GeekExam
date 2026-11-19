@@ -3,7 +3,7 @@ from datetime import timedelta
 import ipaddress
 import secrets
 
-from flask import Blueprint, current_app, g, jsonify
+from flask import Blueprint, current_app, g, jsonify, session
 
 from .models import (db, Device, LocalProofEndpoint, NetworkLogin, NetworkSession,
                      Router, Segment, StudentRoom, User)
@@ -41,6 +41,7 @@ def start():
     row = NetworkLogin(token_digest=digest(token), user_id=g.user.id, router_id=router.id,
                        endpoint_origin=endpoint.origin, expires_at=now()+timedelta(seconds=45))
     db.session.add(row); db.session.flush()
+    session['network_login_id'] = row.id
     result = {'id': row.id, 'token': token, 'url': endpoint.origin+'/v1/network-login', 'expires_in_seconds': 45}
     db.session.commit()
     return jsonify(result), 201

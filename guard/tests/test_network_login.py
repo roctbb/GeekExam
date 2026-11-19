@@ -88,3 +88,13 @@ def test_portal_csp_allows_only_its_lan_endpoint_and_sso_returns_there(app,login
     response=client.get('/auth/login?network=router-a&redirect=https://attacker.test')
     assert response.status_code==302
     with client.session_transaction() as state:assert state['login_next']=='/connect/router-a'
+
+
+def test_logout_revokes_this_browser_network_session(app,login,enroll):
+    agent,headers=prepare(app,enroll)
+    client=login(4); proof=begin(client).json
+    assert complete(agent,headers,proof['token']).status_code==200
+    assert client.post('/auth/logout',headers={'X-CSRF-Token':'test-csrf'}).status_code==200
+    state=login(1).get('/api/v1/rooms/room-a').json
+    assert state['devices'][0]['user'] is None
+    assert state['devices'][0]['profile']=='bootstrap'

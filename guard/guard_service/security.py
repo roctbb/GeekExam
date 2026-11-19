@@ -172,5 +172,16 @@ def me():
 @auth.post("/auth/logout")
 @authenticated()
 def logout():
+    from .models import NetworkLogin
+    from .routes import audit
+    login = db.session.get(NetworkLogin, session.get('network_login_id')) if session.get('network_login_id') else None
+    binding = db.session.get(NetworkSession, login.session_id) if login and login.user_id == g.user.id and login.session_id else None
+    if binding and binding.user_id == g.user.id and not binding.revoked_at:
+        binding.revoked_at = now()
+        device = db.session.get(Device, binding.device_id)
+        router = db.session.get(Router, device.router_id)
+        router.desired_revision += 1
+        audit(router.room_id, 'session.portal_logged_out', binding.id, actor=g.user)
+        db.session.commit()
     session.clear()
     return jsonify(ok=True)
