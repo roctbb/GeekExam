@@ -1,0 +1,25 @@
+# Put this location inside Guard's existing HTTPS server. Replace ROUTER_ID
+# and private addresses per router. The secret include is generated outside Git.
+location = /lan/ROUTER_ID/network-login {
+    if ($server_addr != 10.77.4.1) { return 403; }
+    limit_except POST { deny all; }
+    client_max_body_size 1k;
+    access_log off;
+    proxy_pass https://10.77.4.1:18766/v1/network-login;
+    proxy_ssl_server_name on;
+    proxy_ssl_name guard.geekclass.ru;
+    proxy_ssl_verify on;
+    proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+    proxy_set_header Host guard.geekclass.ru:18766;
+    proxy_set_header Cookie "";
+    proxy_set_header Authorization "";
+    proxy_set_header Forwarded "";
+    proxy_set_header X-Forwarded-For "";
+    proxy_set_header X-Guard-Lan-Peer $remote_addr;
+    proxy_set_header X-Guard-Lan-Peer-Port $remote_port;
+    proxy_set_header X-Guard-Lan-Local $server_addr;
+    proxy_set_header X-Guard-Lan-Port $server_port;
+    include /etc/nginx/snippets/geekguard-lan-ROUTER_ID-secret.conf;
+    proxy_read_timeout 12s;
+    proxy_buffering off;
+}

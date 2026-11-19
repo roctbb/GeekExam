@@ -16,6 +16,14 @@
 
 HTTPS-подтверждение слушает только адрес WireGuard. Если Chilli сохраняет IP клиента, используется реальный TCP peer. Если выполняет SNAT, `nat_peer_ips` разрешает только заданные адреса роутера и требует точного совпадения живого TCP-сокета с NAT-таблицей. Нет совпадения — отказ. IP/MAC из JavaScript, тела запроса и forwarding headers не используются.
 
+### Вход в Wi-Fi без запроса локальной сети
+
+Страница `/connect/<router_id>` автоматически переходит в Coding Projects при отсутствии сессии и автоматически подтверждает устройство после входа. Для серверного агента включается same-origin маршрут `/lan/<router_id>/network-login`: браузер обращается только к обычному HTTPS Guard на 443, без прямого обращения к закрытому порту агента.
+
+Добавить [Nginx location](../guard/deploy/lan-network-login.nginx.example) к существующему HTTPS server, подставив router_id и адрес. Он допускает запросы только через частный IP туннеля, перезаписывает метаданные исходного TCP-соединения и не передаёт cookies/Authorization агенту. Закрытый root-owned include задаёт `proxy_set_header X-Guard-Lan-Auth "<случайный секрет>";`. Тот же секрет (не менее 43 символов) хранится отдельным файлом 0600 в `/secrets/lan-proxy.secret` агента. В `browser_proof.same_origin_proxy` задать `peer_ip` равный адресу самого агента, `local_port: 443`, `secret_file: /secrets/lan-proxy.secret`. Секреты не помещаются в Git.
+
+В env веб-сервиса добавить `GUARD_LAN_PROXY_ROUTERS=<router_id>` (несколько UUID через запятую), только после установки location и агента. Агент принимает метаданные исключительно от собственного адреса с правильным отдельным секретом, затем проверяет точное соответствие TCP tuple NAT-таблице роутера и текущей Wi-Fi ассоциации. Заголовки произвольного клиента не дают права выбрать IP или устройство. Публичный вход в этот маршрут запрещён. Транспорт подтверждения GeekExam пока сохраняется прежним.
+
 ## Контейнер агента
 
 [Dockerfile.agent](../guard/Dockerfile.agent) содержит Python 3.12, RADIUS-зависимости и `iproute2`. [Compose](../guard/deploy/agent.compose.yaml) запускает процесс как UID 10002 без capabilities, с read-only root filesystem и host network. Конфигурация/кеш конкретного роутера находятся в `/etc/geekguard/routers/<router_id>/`, 0700/0600. Пароль, RADIUS-secret и TLS находятся отдельно в `/etc/geekguard/secrets/<router_id>/` и монтируются read-only в `/secrets`. Родительский каталог секретов принадлежит root; файлы 0600 читаются только UID агента. Секреты не попадают в образ, Git, переменные окружения или API Guard. Пример структуры — [agent.server.example.json](../guard/agent.server.example.json).

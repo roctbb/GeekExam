@@ -42,7 +42,9 @@ def start():
                        endpoint_origin=endpoint.origin, expires_at=now()+timedelta(seconds=45))
     db.session.add(row); db.session.flush()
     session['network_login_id'] = row.id
-    result = {'id': row.id, 'token': token, 'url': endpoint.origin+'/v1/network-login', 'expires_in_seconds': 45}
+    url = ('/lan/'+router.id+'/network-login' if router.id in current_app.config['LAN_PROXY_ROUTERS']
+           else endpoint.origin+'/v1/network-login')
+    result = {'id': row.id, 'token': token, 'url': url, 'expires_in_seconds': 45}
     db.session.commit()
     return jsonify(result), 201
 

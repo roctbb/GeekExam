@@ -108,3 +108,51 @@ def test_tunnel_nat_peer_requires_an_exact_mapping_before_any_cloud_proof(tls):
         assert calls[-1][1]['peer_ip'] == '10.1.30.14'
         assert calls[-1][1]['mac'] == '02:00:00:00:00:14'
     finally: server.stop()
+
+
+def test_same_origin_proxy_requires_authenticated_local_ingress_and_exact_router_tuple(tls):
+    key,cert=tls
+    calls,tuples,mapping=[],[],[None]
+    class Cloud:
+        def post(self,path,body):calls.append((path,body));return {'id':'proxy-proof'}
+    def resolve(*args):tuples.append(args);return mapping[0]
+    settings={'listen':'127.0.0.1','port':0,'origin':'https://127.0.0.1','host':'127.0.0.1',
+        'networks':[ipaddress.IPv4Network('10.1.30.0/24')],'nat_peers':{'192.168.2.1'},
+        'allowed_origins':{'https://guard.example.test'},'cert':str(cert),'key':str(key),
+        'proxy':{'peer_ip':'127.0.0.1','local_port':443,'secret':'s'*64}}
+    with patch('guard_agent.browser_proof.validated_settings',return_value=settings):
+        server=LanProofServer({},Cloud(),lambda:[{'ip':'10.1.30.14','mac':'02:00:00:00:00:14','epoch':'current'}],
+                              'boot',resolve_peer=resolve)
+    port=server.server.server_address[1]
+    server.settings.update(port=port,host=f'127.0.0.1:{port}',origin=f'https://127.0.0.1:{port}')
+    server.start()
+    opener=build_opener(ProxyHandler({}),HTTPSHandler(context=ssl.create_default_context(cafile=str(cert))))
+    trusted={'Content-Type':'application/json','Origin':'https://guard.example.test','X-Guard-Lan-Auth':'s'*64,
+        'X-Guard-Lan-Peer':'192.168.2.1','X-Guard-Lan-Peer-Port':'43210','X-Guard-Lan-Local':'127.0.0.1',
+        'X-Guard-Lan-Port':'443','X-Forwarded-For':'10.1.30.99'}
+    def send(changes=None,path='/v1/network-login'):
+        headers={**trusted,**(changes or {})};headers={k:v for k,v in headers.items() if v is not None}
+        req=Request(f'https://127.0.0.1:{port}'+path,data=json.dumps({'token':'a'*43}).encode(),headers=headers)
+        try:
+            with opener.open(req,timeout=5) as response:return response.status
+        except HTTPError as error:return error.code
+    try:
+        for changes in [{'X-Guard-Lan-Auth':None},{'X-Guard-Lan-Auth':'wrong'},
+                        {'X-Guard-Lan-Local':'195.133.49.12'},{'X-Guard-Lan-Port':'18766'},
+                        {'X-Guard-Lan-Peer':'8.8.8.8'}]:
+            assert send(changes)==403 and calls==[]
+        assert send({'X-Guard-Lan-Peer-Port':'0'})==400 and calls==[]
+        assert send(path='/v1/browser-proof')==403 and calls==[]
+        server.settings['proxy']['peer_ip']='10.77.4.1'
+        assert send()==403 and calls==[]
+        server.settings['proxy']['peer_ip']='127.0.0.1'
+        assert send()==403 and calls==[]
+        assert tuples[-1]==('192.168.2.1',43210,'127.0.0.1',443)
+        mapping[0]='192.168.2.62'
+        assert send()==403 and calls==[]
+        mapping[0]='10.1.30.14'
+        assert send()==200
+        assert calls[-1][0]=='network-login/complete'
+        assert calls[-1][1]['peer_ip']=='10.1.30.14'
+        assert calls[-1][1]['mac']=='02:00:00:00:00:14'
+    finally:server.stop()

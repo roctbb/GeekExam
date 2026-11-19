@@ -55,16 +55,26 @@ const portalRouter =
 const networkLogin = ref(null),
   networkState = ref(null),
   connecting = ref(false),
-  networkError = ref("");
+  networkError = ref(""),
+  loginRedirecting = ref(false);
+function signInToNetwork() {
+  if (loginRedirecting.value) return;
+  loginRedirecting.value = true;
+  window.location.replace(`/auth/login?network=${encodeURIComponent(portalRouter)}`);
+}
 async function connectNetwork() {
-  if (!me.value || connecting.value) return;
+  if (!me.value || !portalRouter || connecting.value) return;
+  const generation = accountGeneration;
   connecting.value = true;
   networkError.value = "";
+  networkLogin.value = null;
+  networkState.value = null;
   try {
     const proof = await api("/api/v1/network-login/start", {
       method: "POST",
       body: JSON.stringify({ router_id: portalRouter }),
     });
+    if (generation !== accountGeneration) return;
     networkLogin.value = proof.id;
     let response;
     // A newly joined device may precede the agent's next five-second cloud sample.
@@ -84,14 +94,20 @@ async function connectNetwork() {
       throw new Error(
         "Не удалось подтвердить устройство. Проверьте подключение к ученическому Wi-Fi и повторите вход.",
       );
-    networkState.value = await api(`/api/v1/network-login/${proof.id}`);
+    const state = await api(`/api/v1/network-login/${proof.id}`);
+    if (generation === accountGeneration) networkState.value = state;
   } catch (e) {
+    if (e.status === 401) {
+      signInToNetwork();
+      return;
+    }
+    if (generation !== accountGeneration) return;
     networkError.value =
       e instanceof TypeError
-        ? "Разрешите браузеру доступ к локальной сети и подключитесь к ученическому Wi-Fi."
+        ? "Не удалось связаться с Guard. Проверьте подключение к ученическому Wi-Fi и повторите попытку."
         : e.message;
   } finally {
-    connecting.value = false;
+    if (generation === accountGeneration) connecting.value = false;
   }
 }
 let interval,
@@ -155,7 +171,7 @@ const errorNames = {
   sso_not_configured: "Вход через Coding Projects ещё не настроен.",
   network_login_not_configured: "Вход в эту сеть ещё не настроен.",
   router_unavailable:
-    "Нет свежих данных от агента кабинета. Преподавателю нужно проверить, что компьютер с агентом включён и подключён к служебной сети.",
+    "Нет свежих данных от роутера. Сообщите преподавателю: нужно проверить связь роутера с Guard.",
   student_network_required: "Подключитесь к ученическому Wi-Fi.",
   too_many_login_attempts: "Слишком много попыток входа. Подождите минуту.",
 };
@@ -178,6 +194,8 @@ function clearAccount() {
   ownDevices.value = [];
   networkLogin.value = null;
   networkState.value = null;
+  connecting.value = false;
+  networkError.value = "";
   users.value = [];
   events.value = [];
   journalRequest++;
@@ -202,12 +220,14 @@ async function api(path, options = {}) {
   const result = await response.json().catch(() => ({ error: "server_error" }));
   if (!response.ok) {
     if (response.status === 401) clearAccount();
-    throw new Error(
+    const failure = new Error(
       errorNames[result.error] ||
         (response.status === 401
           ? "Войдите через Coding Projects."
           : `Запрос не выполнен: ${result.error || response.status}`),
     );
+    failure.status = response.status;
+    throw failure;
   }
   return result;
 }
@@ -230,9 +250,12 @@ async function load() {
     }
     me.value = identity;
     if (portalRouter && networkLogin.value) {
-      networkState.value = await api(
-        `/api/v1/network-login/${networkLogin.value}`,
-      );
+      const loginId = networkLogin.value;
+      const state = await api(`/api/v1/network-login/${loginId}`);
+      if (generation === accountGeneration && networkLogin.value === loginId) {
+        networkState.value = state;
+        if (state.state === "authenticated") networkError.value = "";
+      }
     }
     if (portalRouter) return;
     if (me.value.role === "student") {
@@ -260,6 +283,7 @@ async function load() {
       lastLoadedAt.value = clock.value = Date.now();
     } else currentData.value = null;
   } catch (e) {
+    if (portalRouter && e.status === 401) signInToNetwork();
     if (generation === accountGeneration) error.value = e.message;
   } finally {
     reading = false;
@@ -587,9 +611,11 @@ onMounted(async () => {
     me.value = await api("/api/me");
     await load();
   } catch (e) {
-    if (!e.message.includes("Войдите")) error.value = e.message;
+    if (portalRouter && e.status === 401) signInToNetwork();
+    else if (!e.message.includes("Войдите")) error.value = e.message;
   }
   ready.value = true;
+  if (portalRouter && me.value) void connectNetwork();
   interval = setInterval(() => {
     clock.value = Date.now();
     void load();
@@ -677,7 +703,8 @@ onUnmounted(() => {
         <section v-else-if="!me" class="login-screen">
           <div class="login-symbol"><Icon name="router" /></div>
           <h1>Доступ к учебной сети</h1>
-          <p>Кабинеты, подключения учеников и правила доступа к интернету.</p>
+          <p v-if="loginRedirecting">Открываем Coding Projects для входа…</p>
+          <p v-else>Кабинеты, подключения учеников и правила доступа к интернету.</p>
           <a
             class="button primary"
             :href="
@@ -691,7 +718,7 @@ onUnmounted(() => {
         </section>
         <section v-else-if="portalRouter" class="empty-state panel">
           <h1>Вход в учебный Wi-Fi</h1>
-          <p v-if="connecting">Подтверждаем устройство в локальной сети…</p>
+          <p v-if="connecting" role="status">Подключаем к учебной сети…</p>
           <template v-else-if="networkState?.state === 'authenticated'">
             <h2>Вход в сеть подтверждён</h2>
             <p>{{ profileNames[networkState.device.profile] }}</p>
@@ -706,11 +733,11 @@ onUnmounted(() => {
           </template>
           <template v-else>
             <p>
-              Подключитесь к ученическому Wi-Fi и разрешите браузеру доступ к
-              локальной сети.
+              Подключитесь к ученическому Wi-Fi. Если автоматическое
+              подключение не удалось, повторите попытку.
             </p>
             <button class="button primary" @click="connectNetwork">
-              Подтвердить подключение
+              Повторить подключение
             </button>
           </template>
           <p v-if="networkError" role="alert">{{ networkError }}</p>

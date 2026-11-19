@@ -118,7 +118,8 @@ class CaptiveEnforcer(RciClient):
         return result
 
     def resolve_peer(self, peer, peer_port, local, local_port):
-        if peer not in self.nat_peer_ips or local != self.listen or local_port != self.proof_port:
+        ports = {self.proof_port, 443} if self.guard_https else {self.proof_port}
+        if peer not in self.nat_peer_ips or local != self.listen or local_port not in ports:
             return None
         config = self.api('/rci/interface/'+self.chilli)['ip']['address']
         network = ipaddress.IPv4Network(config['address']+'/'+config['mask'],strict=False)

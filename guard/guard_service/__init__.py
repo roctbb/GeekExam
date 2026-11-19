@@ -26,6 +26,7 @@ def create_app(settings=None):
         CP_SERVICE_SECRET=os.getenv("GUARD_CP_SERVICE_SECRET"),
         EXAM_SERVICE_SECRET=os.getenv("GUARD_EXAM_SERVICE_SECRET"),
         EXAM_ORIGIN=os.getenv("GUARD_EXAM_ORIGIN", "https://exam.geekclass.ru"),
+        LAN_PROXY_ROUTERS=set(filter(None, os.getenv("GUARD_LAN_PROXY_ROUTERS", "").split(','))),
         ROLE_TTL_SECONDS=900, PRESENCE_TTL_SECONDS=20, NOW=utcnow,
         SESSION_COOKIE_NAME="guard_session", SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_SECURE=True,

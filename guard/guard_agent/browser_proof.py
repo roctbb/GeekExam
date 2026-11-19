@@ -1,5 +1,6 @@
 """Opt-in LAN HTTPS listener. Never accepts an identity/IP supplied by a page."""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import hmac
 import ipaddress
 import json
 from pathlib import Path
@@ -45,9 +46,25 @@ def validated_settings(value):
     except (KeyError,ValueError,TypeError,OSError):
         raise RouterError('invalid_browser_proof_settings') from None
     peers = nat_peers(value.get('nat_peer_ips', []), listen=str(address))
+    proxy = None
+    if value.get('same_origin_proxy') is not None:
+        try:
+            item = value['same_origin_proxy']
+            if set(item) != {'peer_ip', 'local_port', 'secret_file'} or item['peer_ip'] != str(address) or item['local_port'] != 443:
+                raise ValueError()
+            path = Path(item['secret_file'])
+            if path.stat().st_mode & 0o077:
+                raise ValueError()
+            secret = path.read_text().strip()
+            if not re.fullmatch(r'[a-zA-Z0-9_-]{43,128}', secret):
+                raise ValueError()
+            proxy = {'peer_ip':str(address), 'local_port':443, 'secret':secret}
+        except (KeyError,TypeError,ValueError,OSError):
+            raise RouterError('invalid_same_origin_proxy_settings') from None
     return {'listen':str(address),'port':port,'origin':value['origin'].rstrip('/'),'host':origin.netloc,
             'networks':networks,'allowed_origins':set(allowed),'cert':str(cert),'key':str(key),
             'nat_peers': peers,
+            'proxy': proxy,
             'diagnostics':value.get('diagnostics') is True}
 
 
@@ -125,9 +142,23 @@ class LanProofServer:
                     data = json.loads(self.rfile.read(length))
                     if not isinstance(data,dict) or set(data) != {'token'} or not isinstance(data['token'],str) or not re.fullmatch(r'[A-Za-z0-9_-]{32,100}',data['token']):
                         raise ValueError()
-                    # client_address comes from the TCP socket. Forwarding headers
-                    # and JSON parameters can never choose the LAN device.
+                    # Ordinary forwarding headers never choose the LAN device.
+                    # An explicitly configured same-host proxy may attest the
+                    # actual TLS tuple, authenticated with a separate secret.
                     peer = ipaddress.IPv4Address(self.client_address[0])
+                    peer_port, local_port = self.client_address[1], owner.settings['port']
+                    if self.headers.get('X-Guard-Lan-Auth') is not None:
+                        proxy = owner.settings.get('proxy')
+                        if (not proxy or self.path != '/v1/network-login' or str(peer) != proxy['peer_ip']
+                                or not hmac.compare_digest(self.headers['X-Guard-Lan-Auth'], proxy['secret'])
+                                or self.headers.get('X-Guard-Lan-Local') != owner.settings['listen']
+                                or self.headers.get('X-Guard-Lan-Port') != str(proxy['local_port'])):
+                            self.reply(403);return
+                        peer = ipaddress.IPv4Address(self.headers.get('X-Guard-Lan-Peer'))
+                        peer_port = int(self.headers.get('X-Guard-Lan-Peer-Port','0'))
+                        local_port = proxy['local_port']
+                        if not 1 <= peer_port <= 65535:
+                            raise ValueError()
                     is_nat_peer = str(peer) in owner.settings.get('nat_peers', set())
                     if peer == ipaddress.IPv4Address(owner.settings['listen']) or (not is_nat_peer and not any(peer in net for net in owner.settings['networks'])):
                         diagnostic('lan_proof_peer_rejected')
@@ -138,7 +169,7 @@ class LanProofServer:
                     self.reply(429);return
                 try:
                     if owner.resolve_peer:
-                        original = owner.resolve_peer(str(peer),self.client_address[1],owner.settings['listen'],owner.settings['port'])
+                        original = owner.resolve_peer(str(peer),peer_port,owner.settings['listen'],local_port)
                         if is_nat_peer and not original:
                             diagnostic('lan_nat_peer_unresolved')
                             self.reply(403);return

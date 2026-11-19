@@ -100,6 +100,24 @@ def test_logout_revokes_this_browser_network_session(app,login,enroll):
     assert state['devices'][0]['profile']=='bootstrap'
 
 
+def test_logout_cancels_an_automatic_confirmation_still_in_flight(app,login,enroll):
+    agent,headers=prepare(app,enroll)
+    client=login(4);proof=begin(client).json
+    assert client.post('/auth/logout',headers={'X-CSRF-Token':'test-csrf'}).status_code==200
+    assert complete(agent,headers,proof['token']).status_code==409
+    assert login(1).get('/api/v1/rooms/room-a').json['devices'][0]['user'] is None
+
+
+def test_same_origin_transport_is_explicitly_enabled_per_router(app,login,enroll):
+    prepare(app,enroll)
+    client=login(4)
+    assert begin(client).json['url']=='https://lan.example.test:18766/v1/network-login'
+    app.config['LAN_PROXY_ROUTERS']={'different-router'}
+    assert begin(client).json['url']=='https://lan.example.test:18766/v1/network-login'
+    app.config['LAN_PROXY_ROUTERS']={'router-a'}
+    assert begin(client).json['url']=='/lan/router-a/network-login'
+
+
 def test_room_study_mode_changes_only_access_and_keeps_the_student_login(app,login,enroll):
     agent,headers=prepare(app,enroll)
     pupil=login(4);proof=begin(pupil).json
