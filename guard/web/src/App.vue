@@ -723,6 +723,9 @@ onUnmounted(() => {
             <h2>Вход в сеть подтверждён</h2>
             <p>{{ profileNames[networkState.device.profile] }}</p>
             <p>{{ networkState.device.reason }}</p>
+            <p v-if="networkState.router.status === 'pending'" role="status">
+              Подключаем интернет… Обычно это занимает несколько секунд.
+            </p>
             <p class="muted">
               {{ stateNames[networkState.router.status] }} ·
               {{ presenceNames[networkState.device.presence] }}

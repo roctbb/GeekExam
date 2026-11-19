@@ -106,10 +106,13 @@ def is_fresh(router):
 
 
 def router_state(router):
+    awaiting_login = router.mode == 'enforce' and router.apply_error == 'captive_login_pending'
     if not router.token_digest:
         status = "not_enrolled"
     elif not is_fresh(router):
         status = "unknown"
+    elif awaiting_login:
+        status = "pending"
     elif router.apply_error:
         status = "error"
     elif router.mode != "enforce":
@@ -123,7 +126,7 @@ def router_state(router):
             "model": router.model, "firmware": router.firmware,
             "desired_revision": router.desired_revision, "applied_revision": router.applied_revision,
             "last_seen": stamp(router.last_seen), "applied_at": stamp(router.applied_at),
-            "error": router.apply_error or router.source_error, "capabilities": router.capabilities,
+            "error": (None if awaiting_login else router.apply_error) or router.source_error, "capabilities": router.capabilities,
             "segments": [{"id": seg.id, "name": seg.name, "interface": seg.interface, "purpose": seg.purpose}
                          for seg in db.session.execute(db.select(Segment).where(Segment.router_id == router.id)).scalars()]}
 

@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, urlsplit
 import uuid
 
 import jwt
+import pytest
 
 from conftest import observation
 from guard_service.models import (db, Device, DeviceOverride, NetworkSession, Room, Router, StudentRule, User)
@@ -228,6 +229,23 @@ def test_partial_room_status_requires_each_router_ack(app, login, enroll):
     assert app.test_client().post("/api/v1/agent/report", json=payload, headers=h1).status_code == 200
     room = login(2).get("/api/v1/rooms/room-a").json
     assert room["status"] == "partial" and room["applied_count"] == 1
+
+
+@pytest.mark.parametrize('error,status', [('captive_login_pending','pending'), ('captive_login_command_error','error'), ('acl_readback_failed','error')])
+def test_native_login_wait_never_claims_applied_or_hides_real_failures(app,login,enroll,error,status):
+    headers,_=enroll('router-a');result=sync(app,headers,observation(mode='enforce'))
+    report={'id':str(uuid.uuid4()),'boot_id':'boot-one','revision':result['policy']['revision'],
+            'policy_hash':result['policy_hash'],'mode':'enforce','verified':False,
+            'connections_revoked':False,'error':error}
+    assert app.test_client().post('/api/v1/agent/report',json=report,headers=headers).status_code==200
+    room=login(2).get('/api/v1/rooms/room-a').json
+    router=next(x for x in room['routers'] if x['id']=='router-a')
+    assert router['status']==status and room['applied_count']==0
+    assert router['error']==(None if status=='pending' else error)
+    report.update(id=str(uuid.uuid4()),verified=True,error='')
+    assert app.test_client().post('/api/v1/agent/report',json=report,headers=headers).status_code==200
+    router=next(x for x in login(2).get('/api/v1/rooms/room-a').json['routers'] if x['id']=='router-a')
+    assert router['status']=='applied' and router['error'] is None
 
 
 def test_presence_expires_to_unknown_without_false_disconnect(app, login, enroll):
