@@ -1,0 +1,6 @@
+*
+!guard_agent/
+!guard_agent/**
+!scripts/
+!scripts/prepare_agent_handover.py
+!agent-requirements.txt
