@@ -13,6 +13,7 @@ def driver_with_session():
     driver.proof_port=18766
     driver.guard_https=False
     driver.router_ip='192.168.2.1'
+    driver.dns_router_ip='192.168.2.1'
     driver.traffic_acl=Mock()
     driver.radius=Mock();driver.radius.grant.return_value=('temporary-user','temporary-password')
     driver.renewed={'02:00:00:00:00:01':(('10.1.30.2','current'),time.monotonic())}
@@ -63,3 +64,21 @@ def test_study_mode_round_trip_preserves_native_session_without_reauthentication
     assert commands==[]
     assert [call.args[1] for call in driver.traffic_acl.apply_traffic.call_args_list]==[
         ['10.1.30.2'],[],['10.1.30.2'],[]]
+
+
+def test_tunnel_control_address_does_not_replace_pupil_dns_server():
+    driver,_=driver_with_session()
+    driver.router_ip='10.77.4.2'
+    policy={'manual_restriction':True,'restrictions':[],
+            'resources':[{'ip':'195.133.49.12','port':443}], 'devices':[]}
+    driver.apply(policy,[],datetime.now(timezone.utc))
+    assert driver.traffic_acl.apply_traffic.call_args.args[3]=='192.168.2.1'
+
+
+def test_failed_login_diagnostic_does_not_include_temporary_credentials():
+    driver=CaptiveEnforcer.__new__(CaptiveEnforcer)
+    driver.chilli='Chilli0'
+    driver.bridge='Bridge1'
+    driver._exchange=Mock(return_value=(200,{},b'{"status":"error"}'))
+    with pytest.raises(RouterError,match='^captive_login_command_error$'):
+        driver.api('/rci/parse','interface Chilli0 chilli login 02:00:00:00:00:01 username secret-user password secret-password')

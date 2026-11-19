@@ -59,6 +59,9 @@ class CaptiveEnforcer(RciClient):
             raise RouterError('invalid_radius_secret')
         self.nas_id, self.listen = settings['nas_id'], str(listen)
         self.router_ip = str(router_ip)
+        # The management address can be a WireGuard peer; pupils still use
+        # the LAN DNS address advertised by the native portal.
+        self.dns_router_ip = private_address(settings.get('dns_router_ip', self.router_ip))
         self.nat_peer_ips = nat_peers(settings.get('nat_peer_ips', [self.router_ip]), listen=self.listen)
         radius_source = private_address(settings.get('radius_source_ip', self.router_ip))
         if radius_source == self.listen:
@@ -107,6 +110,10 @@ class CaptiveEnforcer(RciClient):
             raise RouterError('captive_http_'+str(status))
         result = json.loads(raw)
         if has_rci_error(result):
+            if isinstance(payload, str):
+                for operation in ('login', 'logout', 'uamallowed'):
+                    if ' chilli '+operation+' ' in payload:
+                        raise RouterError('captive_'+operation+'_command_error')
             raise RouterError('captive_command_error')
         return result
 
@@ -166,7 +173,7 @@ class CaptiveEnforcer(RciClient):
                     full_addresses.append(observed['ip'])
         # Restrict traffic BEFORE admitting any new native portal session. The
         # native authorization set does not change with the study-mode checkbox.
-        self.traffic_acl.apply_traffic(policy['resources'],full_addresses,self.listen,self.router_ip,self.proof_port,
+        self.traffic_acl.apply_traffic(policy['resources'],full_addresses,self.listen,self.dns_router_ip,self.proof_port,
                                        guard_https=self.guard_https)
         self.radius.retain({(x['mac'],x['ip'],x['epoch']) for x in wanted.values()})
         current = {x['mac'].lower():x for x in self.sessions()}

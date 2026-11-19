@@ -28,6 +28,7 @@
     "interface": "Chilli0",
     "listen": "10.77.4.1",
     "nas_id": "geekguard-409",
+    "dns_router_ip": "192.168.2.1",
     "auth_port": 18120,
     "acct_port": 18130,
     "radius_secret_file": "/secrets/router-radius.secret",

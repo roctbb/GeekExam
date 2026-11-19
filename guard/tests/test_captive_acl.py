@@ -33,13 +33,15 @@ def test_limited_access_keeps_platform_and_proof_reachable_without_public_or_man
 
 
 def test_same_guard_domain_can_serve_the_portal_through_the_private_tunnel():
-    args = ([], [], '10.1.30.1', ipaddress.IPv4Network('10.1.30.0/24'), '10.77.4.1', '10.77.4.2', 18766)
+    args = ([], [], '10.1.30.1', ipaddress.IPv4Network('10.1.30.0/24'), '10.77.4.1', '192.168.2.1', 18766)
     closed = traffic_rules(*args)
     enabled = traffic_rules(*args, guard_https=True)
     assert decide(closed, '10.1.30.14', '10.77.4.1') == 'deny'
     assert decide(enabled, '10.1.30.14', '10.77.4.1') == 'permit'
     assert decide(enabled, '10.1.30.14', '10.77.4.1', port=22) == 'deny'
     assert decide(enabled, '10.1.30.14', '192.168.2.1') == 'deny'
+    assert decide(enabled, '10.1.30.14', '192.168.2.1', 'udp', 53) == 'permit'
+    assert decide(enabled, '10.1.30.14', '10.77.4.2', 'udp', 53) == 'deny'
 
 
 @pytest.mark.parametrize('address',['192.168.2.62','10.1.30.0','10.1.30.1','10.1.30.255'])
