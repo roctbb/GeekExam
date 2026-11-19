@@ -18,7 +18,7 @@ HTTPS-подтверждение слушает только адрес WireGuar
 
 ## Контейнер агента
 
-[Dockerfile.agent](../guard/Dockerfile.agent) содержит Python 3.12, RADIUS-зависимости и `iproute2`. [Compose](../guard/deploy/agent.compose.yaml) запускает процесс как UID 10002 без capabilities, с read-only root filesystem и host network. Секреты конкретного роутера находятся в `/etc/geekguard/routers/<router_id>/`, 0700/0600, и не попадают в образ, Git, переменные окружения или API Guard. Пример структуры — [agent.server.example.json](../guard/agent.server.example.json).
+[Dockerfile.agent](../guard/Dockerfile.agent) содержит Python 3.12, RADIUS-зависимости и `iproute2`. [Compose](../guard/deploy/agent.compose.yaml) запускает процесс как UID 10002 без capabilities, с read-only root filesystem и host network. Конфигурация/кеш конкретного роутера находятся в `/etc/geekguard/routers/<router_id>/`, 0700/0600. Пароль, RADIUS-secret и TLS находятся отдельно в `/etc/geekguard/secrets/<router_id>/` и монтируются read-only в `/secrets`. Родительский каталог секретов принадлежит root; файлы 0600 читаются только UID агента. Секреты не попадают в образ, Git, переменные окружения или API Guard. Пример структуры — [agent.server.example.json](../guard/agent.server.example.json).
 
 При переносе пароль роутера доставляется администратором по SSH в отдельный файл агента на сервере. Он больше не остаётся исключительно на Mac; веб-приложение и база Guard его не получают. TLS-ключ также хранится отдельным закрытым файлом; обновление сертификата должно атомарно обновлять пару файлов, агент перечитывает её без смены boot_id.
 

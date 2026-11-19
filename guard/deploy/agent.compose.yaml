@@ -14,8 +14,9 @@ services:
     security_opt: [no-new-privileges:true]
     pids_limit: 96
     mem_limit: 256m
-    tmpfs: [/tmp:rw,noexec,nosuid,size=16m]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
     volumes:
       - /etc/geekguard/routers/${GUARD_ROUTER_ID:?Set GUARD_ROUTER_ID}:/config
+      - /etc/geekguard/secrets/${GUARD_ROUTER_ID:?Set GUARD_ROUTER_ID}:/secrets:ro
     restart: unless-stopped
     command: [python, -m, guard_agent, run, --config, /config/agent.json, --resume-handover, /config/maintenance-handover.json]
