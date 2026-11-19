@@ -44,7 +44,8 @@ def validated_settings(value):
     except (KeyError,ValueError,TypeError,OSError):
         raise RouterError('invalid_browser_proof_settings') from None
     return {'listen':str(address),'port':port,'origin':value['origin'].rstrip('/'),'host':origin.netloc,
-            'networks':networks,'allowed_origins':set(allowed),'cert':str(cert),'key':str(key)}
+            'networks':networks,'allowed_origins':set(allowed),'cert':str(cert),'key':str(key),
+            'diagnostics':value.get('diagnostics') is True}
 
 
 class LanProofServer:
@@ -54,6 +55,12 @@ class LanProofServer:
         self.lock, self.recent = threading.Lock(), {}
         self.slots = threading.BoundedSemaphore(4)
         owner = self
+
+        def diagnostic(status, reason=None):
+            if owner.settings.get('diagnostics'):
+                row = {'status':status}
+                if reason:row['reason'] = reason
+                print(json.dumps(row),flush=True)
 
         class Handler(BaseHTTPRequestHandler):
             # Do not log request paths, nonce bodies, certificates or identities.
@@ -90,14 +97,18 @@ class LanProofServer:
 
             def do_OPTIONS(self):
                 if not self.allowed() or self.headers.get('Access-Control-Request-Method') != 'POST':
+                    diagnostic('lan_preflight_rejected')
                     self.reply(403);return
+                diagnostic('lan_preflight_accepted')
                 self.reply(204)
 
             def do_GET(self):
+                diagnostic('lan_listener_reached')
                 self.reply(405)
 
             def do_POST(self):
                 if not self.allowed():
+                    diagnostic('lan_proof_origin_rejected')
                     self.reply(403);return
                 if self.headers.get('Transfer-Encoding') or self.headers.get('Content-Type','').split(';')[0] != 'application/json':
                     self.reply(400);return
@@ -112,6 +123,7 @@ class LanProofServer:
                     # and JSON parameters can never choose the LAN device.
                     peer = ipaddress.IPv4Address(self.client_address[0])
                     if peer == ipaddress.IPv4Address(owner.settings['listen']) or not any(peer in net for net in owner.settings['networks']):
+                        diagnostic('lan_proof_peer_rejected')
                         self.reply(403);return
                 except (ValueError,TypeError,TimeoutError):
                     self.reply(400);return
@@ -120,16 +132,23 @@ class LanProofServer:
                 try:
                     context = {'token':data['token'],'origin':self.headers['Origin'],'endpoint_origin':owner.settings['origin']}
                     owner.cloud.post('proofs/inspect',context)
+                    diagnostic('lan_proof_token_accepted')
                     started = time.monotonic()
                     observed = [item for item in owner.observe() if item.get('ip') == str(peer)]
                     if len(observed) != 1:
+                        diagnostic('lan_proof_device_not_observed')
                         self.reply(409,{'error':'unique_current_device_required'});return
                     device = observed[0]
                     result = owner.cloud.post('proofs/complete',{**context,'peer_ip':str(peer),
                         'mac':device['mac'],'epoch':device['epoch'],'boot_id':owner.boot_id,
                         'source_age_seconds':int(time.monotonic()-started)})
+                    diagnostic('lan_proof_completed')
                     self.reply(200,{'id':result['id'],'state':'proved'})
-                except (RouterError,OSError,ValueError,KeyError,TypeError):
+                except RouterError as error:
+                    diagnostic('lan_proof_unavailable',getattr(error,'proof_code',str(error)))
+                    self.reply(503,{'error':'proof_unavailable'})
+                except (OSError,ValueError,KeyError,TypeError):
+                    diagnostic('lan_proof_unavailable','local_observation_error')
                     self.reply(503,{'error':'proof_unavailable'})
                 finally:
                     owner.slots.release()

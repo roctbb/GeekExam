@@ -55,6 +55,15 @@ class GuardClient:
                     raise RouterError("guard_response_too_large")
                 return json.loads(raw)
         except HTTPError as exc:
-            raise RouterError("guard_http_" + str(exc.code)) from None
+            error = RouterError("guard_http_" + str(exc.code))
+            if path.startswith('proofs/'):
+                try:
+                    code = json.loads(exc.read(1024)).get('error')
+                    if code in {'invalid_or_expired_proof','endpoint_changed','origin_mismatch','forbidden','not_found',
+                                'identity_refresh_required','fresh_observation_required','unique_lan_device_required',
+                                'connection_changed','proof_already_completed','device_has_another_user'}:
+                        error.proof_code = code
+                except (ValueError,TypeError,AttributeError):pass
+            raise error from None
         except (URLError, OSError, ValueError):
             raise RouterError("guard_network_or_json_error") from None
