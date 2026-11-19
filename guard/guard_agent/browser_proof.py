@@ -49,9 +49,10 @@ def validated_settings(value):
 
 
 class LanProofServer:
-    def __init__(self, settings, cloud, observe, boot_id):
+    def __init__(self, settings, cloud, observe, boot_id, resolve_peer=None):
         self.settings = validated_settings(settings)
         self.cloud, self.observe, self.boot_id = cloud, observe, boot_id
+        self.resolve_peer = resolve_peer
         self.lock, self.recent = threading.Lock(), {}
         self.slots = threading.BoundedSemaphore(4)
         owner = self
@@ -127,9 +128,20 @@ class LanProofServer:
                         self.reply(403);return
                 except (ValueError,TypeError,TimeoutError):
                     self.reply(400);return
-                if not owner.admit(str(peer)) or not owner.slots.acquire(blocking=False):
+                if not owner.slots.acquire(blocking=False):
                     self.reply(429);return
                 try:
+                    if owner.resolve_peer:
+                        original = owner.resolve_peer(str(peer),self.client_address[1],owner.settings['listen'],owner.settings['port'])
+                        if original:
+                            peer = ipaddress.IPv4Address(original)
+                            if peer == ipaddress.IPv4Address(owner.settings['listen']) or not any(peer in net for net in owner.settings['networks']):
+                                self.reply(403);return
+                            diagnostic('lan_nat_peer_resolved')
+                    # Several pupils share the router's translated address.
+                    # Rate limits apply to the verified original peer instead.
+                    if not owner.admit(str(peer)):
+                        self.reply(429);return
                     context = {'token':data['token'],'origin':self.headers['Origin'],'endpoint_origin':owner.settings['origin']}
                     operation = 'network-login' if self.path == '/v1/network-login' else 'proofs'
                     owner.cloud.post(operation+'/inspect',context)
@@ -140,7 +152,7 @@ class LanProofServer:
                         diagnostic('lan_proof_device_not_observed')
                         self.reply(409,{'error':'unique_current_device_required'});return
                     device = observed[0]
-                    result = owner.cloud.post(operation+'/complete',{**context,'peer_ip':str(peer),
+                    result = owner.cloud.post(operation+'/complete',{**context,'peer_ip':device['ip'],
                         'mac':device['mac'],'epoch':device['epoch'],'boot_id':owner.boot_id,
                         'source_age_seconds':int(time.monotonic()-started)})
                     diagnostic('lan_proof_completed')

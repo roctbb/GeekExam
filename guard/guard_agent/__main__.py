@@ -107,7 +107,8 @@ def run(config, config_path, *, enforce=False, once=False):
             start = time.monotonic()
             if config.get('browser_proof') and proof_server is None and start >= proof_retry_at:
                 try:
-                    proof_server = LanProofServer(config['browser_proof'],GuardClient(config['guard_url'],config['token'],timeout=4),observe,boot)
+                    proof_server = LanProofServer(config['browser_proof'],GuardClient(config['guard_url'],config['token'],timeout=4),observe,boot,
+                                                  resolve_peer=driver.resolve_peer if captive else None)
                     proof_server.start()
                 except (RouterError,OSError,ValueError,KeyError,TypeError):
                     proof_server, proof_retry_at = None, start+60

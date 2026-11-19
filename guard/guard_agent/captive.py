@@ -12,6 +12,31 @@ from .policy import profile_for, parse_time
 from .rci import RciClient, RouterError, has_rci_error
 
 
+def original_lan_peer(rows, peer, peer_port, local, local_port, network):
+    if not isinstance(rows,list):
+        raise RouterError('unsupported_nat_table_schema')
+    matches = []
+    for row in rows:
+        if not isinstance(row,dict):
+            raise RouterError('unsupported_nat_table_schema')
+        # Original and reply tuples must match this very TLS socket. No browser
+        # parameters, forwarding headers, IP-only guesses or cached NAT entries.
+        expected = {'protocol':'tcp','dst':local,'dport':local_port,'src-out':local,
+                    'sport-out':local_port,'dst-out':peer,'dport-out':peer_port}
+        if any(row.get(k) != v for k,v in expected.items()):
+            continue
+        try:
+            address = ipaddress.IPv4Address(row['src'])
+            if address not in network or address in {network.network_address,network.broadcast_address}:
+                continue
+            if type(row.get('sport')) is not int or not 1 <= row['sport'] <= 65535:
+                continue
+        except (KeyError, ValueError, TypeError):
+            continue
+        matches.append(str(address))
+    return matches[0] if len(matches) == 1 else None
+
+
 class CaptiveEnforcer(RciClient):
     def __init__(self, *args, settings, interfaces, **kwargs):
         super().__init__(*args, **kwargs)
@@ -57,7 +82,7 @@ class CaptiveEnforcer(RciClient):
         return self.radius.address(mac)
 
     def api(self, path, payload=None):
-        allowed = {'/rci/parse', '/rci/show/ipv6/route', '/rci/interface/'+self.chilli,
+        allowed = {'/rci/parse', '/rci/show/ipv6/route', '/rci/show/ip/nat', '/rci/interface/'+self.chilli,
                    '/rci/interface/'+self.bridge+'/ip'}
         if path not in allowed:
             raise RouterError('unsupported_captive_endpoint')
@@ -70,6 +95,13 @@ class CaptiveEnforcer(RciClient):
         if has_rci_error(result):
             raise RouterError('captive_command_error')
         return result
+
+    def resolve_peer(self, peer, peer_port, local, local_port):
+        if peer != urlsplit(self.base_url).hostname or local != self.listen or local_port != self.proof_port:
+            return None
+        config = self.api('/rci/interface/'+self.chilli)['ip']['address']
+        network = ipaddress.IPv4Network(config['address']+'/'+config['mask'],strict=False)
+        return original_lan_peer(self.api('/rci/show/ip/nat'),peer,peer_port,local,local_port,network)
 
     def sessions(self):
         result = self.api('/rci/parse', 'show interface '+self.chilli+' chilli')
