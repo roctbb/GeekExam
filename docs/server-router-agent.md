@@ -26,6 +26,8 @@ HTTPS-подтверждение слушает только адрес WireGuar
 
 `control_tunnel` проверяет тип интерфейса WireGuard, его адрес и маршрут к роутеру при запуске, перед наблюдением и применением. При потере транспорта свежие положительные разрешения не выдаются; нативные сессии ограничены таймером роутера.
 
+Для автозапуска используется [systemd-шаблон](../guard/deploy/geekguard-agent@.service). Вне монтируемой агенту директории создать `/etc/geekguard/deploy/<router_id>.env` (root, 0600): `GUARD_ROUTER_ID`, `GUARD_AGENT_IMAGE`, `GUARD_REVISION` и `GUARD_AGENT_COMPOSE` с абсолютным путём к Compose в Git-релизе. Через drop-in конкретного экземпляра добавить `Wants`/`After` для его `wg-quick@<interface>.service`. Затем включить `geekguard-agent@<router_id>.service`. Пароли в этот env-файл не помещаются; контейнер также имеет `restart: unless-stopped`.
+
 ## Переключение
 
 1. Проверить handshake, ответ `/auth` роутера с сервера, адреса и маршруты. Проверить Guard на частном 443 из LAN до изменения DNS.

@@ -1,0 +1,17 @@
+[Unit]
+Description=Guard router agent %i
+Wants=network-online.target
+Requires=docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=/etc/geekguard/deploy/%i.env
+ExecStart=/usr/bin/docker compose -f ${GUARD_AGENT_COMPOSE} up -d --no-build agent
+ExecStop=/usr/bin/docker compose -f ${GUARD_AGENT_COMPOSE} stop --timeout 5 agent
+TimeoutStartSec=45
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
